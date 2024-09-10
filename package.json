@@ -1,0 +1,216 @@
+{
+	"name": "yongutils",
+	"displayName": "yongUtils",
+	"description": "",
+	"version": "0.0.1",
+	"author": "勇哥 <846864051@qq.com>",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/yonggemengmengda/yongUtils.git"
+	},
+	"engines": {
+		"vscode": "^1.92.0"
+	},
+	"categories": [
+		"Other"
+	],
+	"activationEvents": [
+		"onCommand:yongutils.createEnglishFile",
+		"onCommand:yongutils.sortImports",
+		"onCommand:yongutils.translateAll2EN",
+		"onCommand:yongutils.translateEN",
+		"onCommand:yongutils.translate",
+		"onCommand:yongutils.parseToTs",
+		"onCommand:yongutils.encodeURIComponent",
+		"onCommand:yongutils.decodeURIComponent",
+		"onView:yongUtils.webview"
+	],
+	"main": "./dist/extension.js",
+	"contributes": {
+		"commands": [
+			{
+				"command": "yongutils.createEnglishFile",
+				"title": "添加英文文件"
+			},
+			{
+				"command": "yongutils.sortImports",
+				"title": "排序Imports"
+			},
+			{
+				"command": "yongutils.translateAll2EN",
+				"title": "翻译全部为英文"
+			},
+			{
+				"command": "yongutils.translateEN",
+				"title": "翻译选中为英文"
+			},
+			{
+				"command": "yongutils.translate",
+				"title": "AI翻译"
+			},
+			{
+				"command": "yongutils.parseToTs",
+				"title": "解析为ts类型"
+			},
+			{
+				"command": "yongutils.encodeURIComponent",
+				"title": "encodeURI"
+			},
+			{
+				"command": "yongutils.decodeURIComponent",
+				"title": "decodeURI"
+			}
+		],
+		"keybindings": [
+			{
+				"command": "yongutils.translateToggle",
+				"key": "alt+y",
+				"when": "editorTextFocus"
+			},
+			{
+				"command": "yongutils.debugLogger",
+				"key": "ctrl+alt+l",
+				"when": "editorTextFocus"
+			}
+		],
+		"viewsContainers": {
+			"activitybar": [
+				{
+					"id": "yongutils",
+					"title": "勇哥",
+					"icon": "media/logo.svg"
+				}
+			]
+		},
+		"views": {
+			"yongutils": [
+				{
+					"icon": "media/logo.svg",
+					"type": "webview",
+					"id": "yongUtils.webview",
+					"name": "工具集"
+				}
+			]
+		},
+		"menus": {
+			"editor/context": [
+				{
+					"command": "yongutils.sortImports",
+					"group": "navigation",
+					"when": "editorLangId == javascript || editorLangId == typescript || editorLangId == vue"
+				},
+				{
+					"command": "yongutils.translateAll2EN",
+					"group": "navigation"
+				},
+				{
+					"command": "yongutils.translateEN",
+					"group": "navigation"
+				},
+				{
+					"command": "yongutils.translate",
+					"group": "navigation"
+				},
+				{
+					"command": "yongutils.parseToTs",
+					"group": "navigation"
+				},
+				{
+					"command": "yongutils.encodeURIComponent",
+					"group": "navigation"
+				},
+				{
+					"command": "yongutils.decodeURIComponent",
+					"group": "navigation"
+				}
+			],
+			"explorer/context": [
+				{
+					"command": "yongutils.createEnglishFile",
+					"group": "navigation",
+					"when": "explorerResourceIsFolder || explorerResourceIsFile"
+				}
+			]
+		},
+		"configuration": {
+			"title": "yongUtilsConfiguration",
+			"properties": {
+				"importSorter.addGroupComments": {
+					"type": "boolean",
+					"default": true,
+					"description": "添加分组注释"
+				},
+				"importSorter.sortByLength": {
+					"type": "boolean",
+					"default": true,
+					"description": "按分块由短到长排序"
+				},
+				"importSorter.internalLibPrefixes": {
+					"type": "array",
+					"default": [
+						"@@@/",
+						"@@/",
+						"@/",
+						"./",
+						"../"
+					],
+					"description": "内部库的前缀，用于区分公共库和本地库"
+				},
+				"importSorter.customGroupNames": {
+					"type": "object",
+					"default": {
+						"public-component": "公共组件",
+						"local-component": "本地组件",
+						"public-utility": "公共工具函数",
+						"local-utility": "本地工具函数",
+						"public-library": "公共库",
+						"local-library": "本地库"
+					},
+					"description": "自定义分组注释名称"
+				}
+			}
+		}
+	},
+	"scripts": {
+		"vscode:prepublish": "pnpm run package",
+		"compile": "webpack",
+		"watch": "webpack --watch",
+		"package": "webpack --mode production --devtool hidden-source-map",
+		"compile-tests": "tsc -p . --outDir out",
+		"watch-tests": "tsc -p . -w --outDir out",
+		"pretest": "pnpm run compile-tests && pnpm run compile && pnpm run lint",
+		"lint": "eslint src --ext ts",
+		"test": "vscode-test"
+	},
+	"devDependencies": {
+		"@types/babel__traverse": "^7.20.7",
+		"@types/mocha": "^10.0.7",
+		"@types/node": "20.x",
+		"@types/vscode": "^1.92.0",
+		"@typescript-eslint/eslint-plugin": "^7.14.1",
+		"@typescript-eslint/parser": "^7.11.0",
+		"@vscode/test-cli": "^0.0.9",
+		"@vscode/test-electron": "^2.4.0",
+		"eslint": "^8.57.0",
+		"ts-loader": "^9.5.1",
+		"typescript": "^5.4.5",
+		"webpack": "^5.92.1",
+		"webpack-cli": "^5.1.4"
+	},
+	"dependencies": {
+		"@babel/parser": "^7.27.0",
+		"@babel/traverse": "^7.27.0",
+		"@vue/compiler-sfc": "^3.5.13",
+		"chalk": "^5.3.0",
+		"co": "^4.6.0",
+		"compress-image": "^0.0.1",
+		"filesize.js": "^2.0.0",
+		"imageinfo": "^1.0.4",
+		"jimp": "^1.6.0",
+		"openai": "^4.77.0",
+		"parse5": "^7.2.1",
+		"postcss": "^8.5.3",
+		"tinify": "^1.7.1"
+	}
+}

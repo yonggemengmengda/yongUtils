@@ -1,0 +1,614 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --color-primary: var(--vscode-button-background, #2563eb);
+  --color-primary-light: color-mix(in srgb, var(--color-primary) 70%, white);
+  --color-primary-dark: color-mix(in srgb, var(--color-primary) 70%, black);
+
+  --color-background: var(--vscode-editor-background, #f8fafc);
+  --color-background-secondary: var(--vscode-sideBar-background, #ffffff);
+  --color-background-tertiary: var(--vscode-editorWidget-background, #f1f5f9);
+
+  --color-text: var(--vscode-foreground, #0f172a);
+  --color-text-secondary: var(--vscode-descriptionForeground, #64748b);
+  --color-text-tertiary: color-mix(in srgb, var(--color-text-secondary) 70%, var(--color-text) 30%);
+
+  --color-border: var(--vscode-panel-border, #e2e8f0);
+  --color-border-light: color-mix(in srgb, var(--color-border) 60%, white);
+  --color-border-dark: color-mix(in srgb, var(--color-border) 70%, black);
+
+  --color-focus: var(--vscode-focusBorder, #2563eb);
+  --color-shadow: var(--vscode-widget-shadow, rgba(0, 0, 0, 0.25));
+
+  --app-gradient-start: color-mix(in srgb, var(--color-primary) 14%, var(--color-background) 86%);
+  --app-gradient-end: var(--color-background);
+  --app-surface-elevated: color-mix(in srgb, var(--color-background-tertiary) 78%, var(--color-background) 22%);
+}
+
+.dark {
+  color-scheme: dark;
+  --color-primary: var(--vscode-button-background, #3b82f6);
+  --color-primary-light: color-mix(in srgb, var(--color-primary) 70%, white);
+  --color-primary-dark: color-mix(in srgb, var(--color-primary) 70%, black);
+
+  --color-background: var(--vscode-editor-background, #0b1120);
+  --color-background-secondary: var(--vscode-sideBar-background, #0f172a);
+  --color-background-tertiary: var(--vscode-editorWidget-background, #111827);
+
+  --color-text: var(--vscode-foreground, #e2e8f0);
+  --color-text-secondary: var(--vscode-descriptionForeground, #94a3b8);
+  --color-text-tertiary: color-mix(in srgb, var(--color-text-secondary) 70%, var(--color-text) 30%);
+
+  --color-border: var(--vscode-panel-border, #1f2937);
+  --color-border-light: color-mix(in srgb, var(--color-border) 60%, white);
+  --color-border-dark: color-mix(in srgb, var(--color-border) 70%, black);
+
+  --color-focus: var(--vscode-focusBorder, #60a5fa);
+  --color-shadow: var(--vscode-widget-shadow, rgba(0, 0, 0, 0.5));
+
+  --app-gradient-start: color-mix(in srgb, var(--color-primary) 20%, var(--color-background) 80%);
+  --app-gradient-end: var(--color-background);
+  --app-surface-elevated: color-mix(in srgb, var(--color-background-tertiary) 80%, var(--color-background) 20%);
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  font-family: var(
+    --vscode-font-family,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    "Helvetica Neue",
+    Arial,
+    sans-serif
+  );
+  font-size: var(--vscode-font-size, 13px);
+  line-height: 1.5;
+  background-color: var(--color-background);
+  color: var(--color-text);
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: color-mix(in srgb, var(--color-text) 6%, transparent);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--color-text) 25%, transparent);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--color-text) 35%, transparent);
+}
+
+/* Smooth transitions */
+* {
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+/* Selection */
+::selection {
+  background-color: color-mix(in srgb, var(--color-primary) 35%, transparent);
+  color: var(--color-text);
+}
+
+/* Focus ring */
+:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+/* Naive UI tweaks */
+.n-base-select-menu .n-base-select-option {
+  transition: all 0.2s ease;
+}
+
+.n-base-select-menu .n-base-select-option:hover {
+  background-color: color-mix(in srgb, var(--color-primary) 12%, transparent);
+}
+
+.n-button:not(.n-button--disabled):hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px -12px var(--color-shadow);
+}
+
+.n-input:focus-within {
+  border-color: var(--color-focus);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-focus) 20%, transparent);
+}
+
+/* Theme utility classes */
+.bg-theme {
+  background-color: var(--color-background);
+}
+
+.bg-theme-secondary {
+  background-color: var(--color-background-secondary);
+}
+
+.bg-theme-tertiary {
+  background-color: var(--color-background-tertiary);
+}
+
+.text-theme {
+  color: var(--color-text);
+}
+
+.text-theme-secondary {
+  color: var(--color-text-secondary);
+}
+
+.text-theme-tertiary {
+  color: var(--color-text-tertiary);
+}
+
+.border-theme {
+  border-color: var(--color-border);
+}
+
+.border-theme-light {
+  border-color: var(--color-border-light);
+}
+
+.border-theme-dark {
+  border-color: var(--color-border-dark);
+}
+
+/* App shell */
+.app-shell {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-background);
+  background-image: radial-gradient(
+    1200px 600px at 10% -20%,
+    var(--app-gradient-start),
+    transparent 60%
+  );
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-background-secondary) 88%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+.app-brand {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.app-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+.app-subtitle {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+}
+
+.app-badge {
+  font-size: 0.65rem;
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-background-tertiary);
+  color: var(--color-text-secondary);
+}
+
+.app-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--color-background-tertiary);
+  color: var(--color-text);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.theme-toggle:hover {
+  background: var(--color-background-secondary);
+  border-color: var(--color-border-dark);
+}
+
+.theme-toggle:active {
+  transform: translateY(1px);
+}
+
+.app-nav {
+  padding: 0 20px 12px;
+}
+
+.tool-nav {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(1, max-content);
+  grid-auto-columns: max-content;
+  align-content: start;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--app-surface-elevated);
+  box-shadow: 0 12px 28px -20px var(--color-shadow);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.tool-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  min-width: 38px;
+  height: 38px;
+  padding: 0;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: var(--color-background-tertiary);
+  color: var(--color-text);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.85rem;
+  transition: all 0.2s ease;
+}
+
+.tool-button:hover {
+  border-color: var(--color-border-dark);
+  background: color-mix(in srgb, var(--color-background-tertiary) 70%, var(--color-background-secondary) 30%);
+  transform: translateY(-1px);
+}
+
+.tool-button[data-active="true"] {
+  background: var(--color-primary);
+  color: var(--vscode-button-foreground, #ffffff);
+  border-color: color-mix(in srgb, var(--color-primary) 75%, black);
+  box-shadow: 0 10px 20px -14px var(--color-shadow);
+}
+
+.tool-icon {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-secondary);
+}
+
+.tool-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.tool-button[data-active="true"] .tool-icon {
+  background: color-mix(in srgb, var(--color-primary) 75%, white);
+  color: var(--vscode-button-foreground, #ffffff);
+}
+
+.tool-label {
+  display: none;
+}
+
+.app-content {
+  flex: 1;
+  overflow: auto;
+  padding: 16px 20px 20px;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-page {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.app-tool-surface {
+  flex: 1;
+  min-height: 0;
+  background: var(--color-background-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  padding: 16px;
+  box-shadow: 0 18px 32px -26px var(--color-shadow);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.tool-wrapper {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+@media (max-width: 720px) {
+  .app-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .app-nav {
+    padding: 0 12px 12px;
+  }
+
+  .tool-nav {
+    grid-auto-columns: max-content;
+  }
+
+  .tool-button {
+    flex: 0 0 auto;
+  }
+
+  .app-content {
+    padding: 12px;
+  }
+}
+
+/* Shared UI components */
+.ui-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ui-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ui-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  color: var(--color-text-secondary);
+}
+
+.ui-help {
+  font-size: 0.75rem;
+  color: var(--color-text-tertiary);
+}
+
+.ui-input,
+.ui-textarea,
+.ui-select {
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--color-background-tertiary);
+  color: var(--color-text);
+  padding: 10px 12px;
+  font-size: 0.9rem;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+}
+
+.ui-input:focus,
+.ui-textarea:focus,
+.ui-select:focus {
+  outline: none;
+  border-color: var(--color-focus);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-focus) 20%, transparent);
+}
+
+.ui-textarea {
+  min-height: 120px;
+  resize: vertical;
+  font-family: var(--vscode-editor-font-family, var(--vscode-font-family, inherit));
+  line-height: 1.5;
+}
+
+.ui-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--color-background-tertiary);
+  color: var(--color-text);
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: transform 0.15s ease, background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.ui-button:hover {
+  border-color: var(--color-border-dark);
+  background: color-mix(in srgb, var(--color-background-tertiary) 75%, var(--color-background-secondary) 25%);
+}
+
+.ui-button:active {
+  transform: translateY(1px);
+}
+
+.ui-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.ui-button.primary {
+  background: var(--color-primary);
+  border-color: color-mix(in srgb, var(--color-primary) 75%, black);
+  color: var(--vscode-button-foreground, #ffffff);
+}
+
+.ui-button.ghost {
+  background: transparent;
+}
+
+.ui-button.danger {
+  background: color-mix(in srgb, #ef4444 75%, var(--color-background));
+  border-color: color-mix(in srgb, #ef4444 65%, black);
+  color: #fff;
+}
+
+.ui-button.icon {
+  padding: 6px;
+  width: 32px;
+  height: 32px;
+}
+
+.ui-segmented {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 12px;
+  border: 1px solid var(--color-border);
+  padding: 4px;
+  background: var(--color-background-tertiary);
+}
+
+.ui-segmented button {
+  border: 0;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-weight: 600;
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.ui-segmented button[data-active="true"] {
+  background: var(--color-background-secondary);
+  color: var(--color-text);
+}
+
+.ui-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-background-secondary);
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+}
+
+.ui-card {
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-background-secondary);
+  padding: 14px;
+}
+
+.ui-panel {
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-background-tertiary);
+  padding: 12px;
+}
+
+.ui-divider {
+  height: 1px;
+  width: 100%;
+  background: var(--color-border);
+}
+
+.ui-badge {
+  font-size: 0.65rem;
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  background: var(--color-background-tertiary);
+}
+
+.ui-kbd {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 0.7rem;
+  padding: 2px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  background: var(--color-background-tertiary);
+}
+
+.ui-dropzone {
+  border: 1px dashed var(--color-border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--color-background-tertiary) 70%, transparent);
+  padding: 16px;
+  text-align: center;
+  color: var(--color-text-secondary);
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.ui-dropzone.dragover {
+  border-color: var(--color-focus);
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  color: var(--color-text);
+}
+
+.ui-file-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 12px;
+}
+
+.ui-file-card {
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-background-tertiary);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ui-file-thumb {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 8px;
+  object-fit: cover;
+  background: var(--color-background-secondary);
+}
+
+.ui-scrollbar-x {
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
