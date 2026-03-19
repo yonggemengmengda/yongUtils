@@ -4,6 +4,7 @@
 	"description": "VS Code 开发效率工具集 - 集成智能 Import 排序、AI 翻译、TypeScript 类型生成、国际化文件管理、Webview 多功能工具面板等实用功能",
 	"version": "0.0.1",
 	"author": "勇哥 <846864051@qq.com>",
+	"publisher": "yonggemengmengda",
 	"license": "MIT",
 	"repository": {
 		"type": "git",
