@@ -1,7 +1,7 @@
 {
 	"name": "yongutils",
 	"displayName": "yongUtils",
-	"description": "",
+	"description": "VS Code 开发效率工具集 - 集成智能 Import 排序、AI 翻译、TypeScript 类型生成、国际化文件管理、Webview 多功能工具面板等实用功能",
 	"version": "0.0.1",
 	"author": "勇哥 <846864051@qq.com>",
 	"license": "MIT",
@@ -18,7 +18,6 @@
 	"activationEvents": [
 		"onCommand:yongutils.createEnglishFile",
 		"onCommand:yongutils.sortImports",
-		"onCommand:yongutils.translateAll2EN",
 		"onCommand:yongutils.translateEN",
 		"onCommand:yongutils.translate",
 		"onCommand:yongutils.parseToTs",
@@ -38,16 +37,12 @@
 				"title": "排序Imports"
 			},
 			{
-				"command": "yongutils.translateAll2EN",
-				"title": "翻译全部为英文"
-			},
-			{
 				"command": "yongutils.translateEN",
 				"title": "翻译选中为英文"
 			},
 			{
 				"command": "yongutils.translate",
-				"title": "AI翻译"
+				"title": "选中英汉互译"
 			},
 			{
 				"command": "yongutils.parseToTs",
@@ -70,7 +65,7 @@
 			},
 			{
 				"command": "yongutils.debugLogger",
-				"key": "ctrl+alt+l",
+				"key": "ctrl+y",
 				"when": "editorTextFocus"
 			}
 		],
@@ -99,10 +94,6 @@
 					"command": "yongutils.sortImports",
 					"group": "navigation",
 					"when": "editorLangId == javascript || editorLangId == typescript || editorLangId == vue"
-				},
-				{
-					"command": "yongutils.translateAll2EN",
-					"group": "navigation"
 				},
 				{
 					"command": "yongutils.translateEN",

@@ -66,24 +66,6 @@ export function registerCommands(
 		}
 	)
 	
-	const translateAll2EnDisposable = vscode.commands.registerCommand(
-		"yongutils.translateAll2EN",
-		async () => {
-			const editor = vscode.window.activeTextEditor
-			// 获取当前文档.或#开头，且后面跟着中文的文本，非贪婪匹配,多次匹配
-			if (!editor) return
-			const domText = editor.document.getText()
-			try {
-				const styleMatches = domText.match(/[\.|\#]([\u4e00-\u9fa5]+)/g)
-				await translateText2EN(translationCache, styleMatches, editor)
-				const htmlMatches = domText.match(/(class|id)=["|'].*["|']/g)
-				await translateText2EN(translationCache, htmlMatches, editor)
-			} catch (error) {
-				showTranslateError(error)
-			}
-		}
-	)
-	
 	const translateDisposable = vscode.commands.registerCommand(
 		"yongutils.translate",
 		async () => {
@@ -270,7 +252,6 @@ export function registerCommands(
 
 	context.subscriptions.push(
 		addEnglishFileDisposable,
-		translateAll2EnDisposable,
 		translate2EnDisposable,
 		translateDisposable,
 		translateToggleDisposable,
