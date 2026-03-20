@@ -1,9 +1,49 @@
-# Change Log
+# 更新日志
 
-All notable changes to the "yongutils" extension will be documented in this file.
+本文件记录 `yongutils` 扩展的重要更新内容。
 
-Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
+版本记录参考 [Keep a Changelog](http://keepachangelog.com/) 的组织方式，并结合当前项目做中文化整理。
 
 ## [Unreleased]
 
-- Initial release
+- 暂无未发布更新
+
+## [0.1.0] - 2026-03-20
+
+### 新增
+
+- 首个可发布版本上线，提供 `YongUtils` 活动栏入口和工具面板。
+- 新增智能 Import 排序能力，支持 JavaScript / TypeScript / JSX / TSX / Vue SFC。
+- Import 排序支持副作用 import 置顶、`import type`、按分组排序、按需清理未使用导入。
+- Import 排序支持 Code Action、手动命令触发和保存时自动整理。
+- 新增 AI 翻译工作流，支持选中翻译、翻译缓存和自定义模型配置。
+- 新增鼠标悬浮自动翻译，支持工作区级开关记忆。
+- 新增英文命名助手，可生成多种命名风格候选并直接替换选中内容。
+- 新增 i18n 文案提取助手，支持生成 key、英文翻译和常见 `t()` 替换片段。
+- 新增“添加英文文件”命令，便于维护国际化文件对照。
+- 新增 TypeScript 类型生成能力，可从对象、数组和表达式生成类型定义。
+- 新增工具面板内 AST 工作台，支持 Vue 3 / HTML / JavaScript / TypeScript AST 结构查看与摘要洞察。
+- 新增工具面板内正则测试、Base64 / MD5、URI 编解码、图片格式与分辨率调整等实用工具。
+- 新增调试日志快捷命令，支持快速插入调试输出。
+- 新增插件市场图标资源和打包配置。
+
+### 优化
+
+- Import 排序相关配置统一到 `yongutils.importSorter.*` 命名空间下，避免与其他扩展配置冲突。
+- AST 深度洞察能力的文档说明收口为 Vue 3 SFC，不再对 Vue 2 / Options API 做兼容承诺。
+- `parseToTs` 从不安全的运行时执行方式调整为 AST 推断方案，提升安全性和稳定性。
+- 悬浮翻译默认开启，但不再在每次激活扩展时重置开关状态。
+- Import 排序成功时默认静默，仅在失败时提示错误，减少打扰。
+- README 与真实命令、快捷键、翻译配置方式和 AST 兼容范围保持一致。
+
+### 修复
+
+- 修复 `package.json` 中已声明但未注册的 URI 编解码命令问题。
+- 修复调试时重复安装扩展导致的命令重复注册和 Webview 视图重复注册问题。
+- 修复 Import 排序配置键重复注册导致的扩展告警问题。
+- 修复 AST 模块对脚本解构变量的识别问题，避免把解构出的变量误判为模板缺口。
+- 修复模板 `:class` 对象中类似 `border-l`、`border-t`、`border-r` 的 class key 被误提取为变量的问题。
+- 修复 Vue `defineProps` / `props` 中声明的字段被误判为模板潜在缺口的问题。
+- 修复 `defineExpose({ setCertType })` 未识别为对外暴露成员的问题。
+- 修复悬浮翻译开关状态不持久、文档与行为不一致等体验问题。
+- 修复根目录 lint 配置与当前项目依赖不匹配的问题，并清理多余打包缓存产物。
