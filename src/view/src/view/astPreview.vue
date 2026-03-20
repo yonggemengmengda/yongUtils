@@ -83,6 +83,15 @@
                 <div class="insight-item-head">
                   <span class="insight-item-label">{{ item.label }}</span>
                   <div class="insight-item-badges">
+                    <button
+                      v-if="item.copyText"
+                      class="insight-copy-button"
+                      type="button"
+                      :title="item.actionLabel || '复制内容'"
+                      @click.stop="copySummaryItem(item)"
+                    >
+                      复制
+                    </button>
                     <span v-if="item.kind" class="ui-badge">{{ item.kind }}</span>
                     <span v-if="item.badge" class="ui-badge">{{ item.badge }}</span>
                   </div>
@@ -193,6 +202,8 @@ type SummaryItem = {
   badge?: string
   status?: "linked" | "warning"
   location?: any
+  copyText?: string
+  actionLabel?: string
 }
 
 type SummarySection = {
@@ -305,6 +316,14 @@ function revealLocation(location: any) {
   vscode.postMessage({
     command: "revealAstLocation",
     data: safeLocation,
+  })
+}
+
+function copySummaryItem(item: SummaryItem) {
+  if (!item.copyText || !vscode?.postMessage) return
+  vscode.postMessage({
+    command: "copyToClipboard",
+    text: item.copyText,
   })
 }
 
@@ -441,15 +460,17 @@ function getDefaultExpandedSections(summaryPayload: SummaryPayload | null): stri
   if (!summaryPayload?.sections?.length) return []
   const preferred = summaryPayload.sections
     .filter((section) =>
-      section.id.includes("external") ||
-      section.id.includes("components-debug") ||
-      section.id.includes("definition-debug") ||
-      section.id.includes("links")
+      section.id.includes("dependency") ||
+      section.id.includes("links") ||
+      section.id.includes("contract") ||
+      section.id.includes("reactivity") ||
+      section.id.includes("exports") ||
+      section.id.includes("hooks")
     )
     .map((section) => section.id)
 
   if (preferred.length > 0) {
-    return [...new Set(preferred.slice(0, 2))]
+    return [...new Set(preferred.slice(0, 3))]
   }
   return [summaryPayload.sections[0].id]
 }
@@ -682,6 +703,23 @@ onUnmounted(() => {
   gap: 6px;
   flex-wrap: wrap;
   justify-content: flex-end;
+  align-items: center;
+}
+
+.insight-copy-button {
+  border: 1px solid var(--color-border);
+  background: var(--color-background-secondary);
+  color: var(--color-text-secondary);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 0.68rem;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.insight-copy-button:hover {
+  color: var(--color-text);
+  border-color: var(--color-border-dark);
 }
 
 .insight-item-description {

@@ -19,7 +19,6 @@ let translationCacheRef: TranslationCacheStore | null = null
 export async function activate(context: ExtensionContext) {
 	// 从持久化存储中加载缓存
 	console.log('Congratulations, your extension "yongutils" is now active!')
-	context.workspaceState.update("isTurnOn", true)
 	
 	await initTranslationAiConfig(context)
 	const translationCache = await createTranslationCacheStore(context)

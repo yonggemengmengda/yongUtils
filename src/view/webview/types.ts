@@ -57,6 +57,8 @@ export type AstSummaryItem = {
 	badge?: string
 	status?: "linked" | "warning"
 	location?: WebLocation
+	copyText?: string
+	actionLabel?: string
 }
 
 export type ScriptDefinition = {
@@ -68,11 +70,15 @@ export type ScriptDefinition = {
 
 export type ScriptSummaryData = {
 	imports: AstSummaryItem[]
+	exports: AstSummaryItem[]
 	functions: AstSummaryItem[]
+	hooks: AstSummaryItem[]
 	state: AstSummaryItem[]
 	types: AstSummaryItem[]
 	classes: AstSummaryItem[]
 	definitions: Map<string, ScriptDefinition>
+	dependencies: DependencyInsight[]
+	vueComposition: VueCompositionInsight
 	totalEntries: number
 }
 
@@ -93,4 +99,23 @@ export type TemplateUsage = {
 export type TemplateSummaryData = {
 	linked: AstSummaryItem[]
 	missing: AstSummaryItem[]
+}
+
+export type DependencyInsight = {
+	modulePath: string
+	group: "builtin" | "external" | "internal"
+	importedCount: number
+	symbols: string[]
+	location?: WebLocation
+}
+
+export type VueCompositionInsight = {
+	props: AstSummaryItem[]
+	emits: AstSummaryItem[]
+	expose: AstSummaryItem[]
+	refs: AstSummaryItem[]
+	computed: AstSummaryItem[]
+	reactive: AstSummaryItem[]
+	watches: AstSummaryItem[]
+	lifecycle: AstSummaryItem[]
 }

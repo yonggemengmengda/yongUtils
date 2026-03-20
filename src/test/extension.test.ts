@@ -68,12 +68,26 @@ suite('Extension Test Suite', () => {
 
 	test('Commands should be registered', async () => {
 		const commands = await vscode.commands.getCommands();
-		assert.ok(commands.some(cmd => cmd.startsWith('yongutils.')));
-	});
+		const expectedCommands = [
+			'yongutils.createEnglishFile',
+			'yongutils.sortImports',
+			'yongutils.translateEN',
+			'yongutils.translate',
+			'yongutils.parseToTs',
+			'yongutils.generateEnglishNames',
+			'yongutils.extractI18nEntry',
+			'yongutils.encodeURIComponent',
+			'yongutils.decodeURIComponent',
+			'yongutils.translateToggle',
+			'yongutils.openToolPanel',
+			'yongutils.debugLogger',
+		];
 
-	test('Core functionality should work', async () => {
-		// 测试核心功能
-		const result = await vscode.commands.executeCommand('yongutils.sampleCommand');
-		assert.ok(result);
+		for (const command of expectedCommands) {
+			assert.ok(
+				commands.includes(command),
+				`Expected command ${command} to be registered`
+			);
+		}
 	});
 });

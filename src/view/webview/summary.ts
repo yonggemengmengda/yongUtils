@@ -1,17 +1,26 @@
+import { builtinModules } from "module"
 import { TEMPLATE_IDENTIFIER_BLACKLIST } from "./constants"
 import type {
 	AstSummary,
 	AstSummaryItem,
 	AstSummarySection,
+	DependencyInsight,
 	ScriptCollectContext,
 	ScriptDefinition,
 	ScriptSummaryData,
 	TemplateSummaryData,
 	TemplateUsage,
+	VueCompositionInsight,
 	WebAstKind,
 	WebAstNode,
 	WebLocation,
 } from "./types"
+
+const BUILTIN_MODULES = new Set(
+	builtinModules.flatMap((name) =>
+		name.startsWith("node:") ? [name, name.slice(5)] : [name, `node:${name}`]
+	)
+)
 
 export class AstSummaryBuilder {
 	public buildVueSummary(
@@ -25,13 +34,16 @@ export class AstSummaryBuilder {
 			scriptSummary.definitions,
 			scriptImportNames
 		)
-		this.collectTemplateSummary(
+		this.mergeVuePropDefinitions(scriptSummary.definitions, scriptNodes)
+		this.mergeVueExposeExports(scriptSummary)
+		const templateSummary = this.collectTemplateSummary(
 			templateNodes,
 			scriptSummary.definitions,
 			templateComponents
 		)
 		const templateTagItems = this.buildTagOverviewItems(templateNodes)
 		const sections: AstSummarySection[] = []
+		sections.push(...this.buildDependencySections(scriptSummary.dependencies))
 		if (templateTagItems.length) {
 			sections.push({
 				id: "template-tags",
@@ -41,13 +53,44 @@ export class AstSummaryBuilder {
 				emptyText: "没有可展示的标签信息。",
 			})
 		}
+		sections.push(...this.buildTemplateLinkSections(templateSummary))
+		sections.push(...this.buildVueCompositionSections(scriptSummary.vueComposition))
 		sections.push(...this.buildScriptSections(scriptSummary))
 
 		if (!sections.length) return undefined
+		const compositionCount = this.countVueCompositionItems(scriptSummary.vueComposition)
 		return {
 			title: "Vue 结构工作台",
 			subtitle: "先看模板和脚本结构，再决定是否深入原始 AST。",
-			cards: [],
+			cards: [
+				{
+					label: "依赖模块",
+					value: String(scriptSummary.dependencies.length),
+					description: "当前文件 import 的模块数",
+				},
+				{
+					label: "模板联动",
+					value: String(templateSummary.linked.length),
+					description: "模板引用能在脚本里找到入口",
+					tone: templateSummary.linked.length ? "success" : "default",
+				},
+				{
+					label: "模板缺口",
+					value: String(templateSummary.missing.length),
+					description: "模板里引用了，但摘要里没定位到定义",
+					tone: templateSummary.missing.length ? "warning" : "success",
+				},
+				{
+					label: "对外暴露",
+					value: String(scriptSummary.exports.length),
+					description: "export / defineExpose 的入口数量",
+				},
+				{
+					label: "组合式 API",
+					value: String(compositionCount),
+					description: "props、emits、ref、computed、watch 等",
+				},
+			],
 			sections,
 		}
 	}
@@ -57,16 +100,29 @@ export class AstSummaryBuilder {
 		languageId: string
 	): AstSummary | undefined {
 		const scriptSummary = this.collectScriptSummary(nodes)
-		const sections = this.buildScriptSections(scriptSummary)
+		const sections = [
+			...this.buildDependencySections(scriptSummary.dependencies),
+			...this.buildScriptSections(scriptSummary),
+		]
 		if (!sections.length) return undefined
 		return {
 			title: "脚本结构摘要",
 			subtitle: `按 ${languageId} 文件里的结构入口分组，方便直接导航。`,
 			cards: [
 				{
-					label: "Imports",
-					value: String(scriptSummary.imports.length),
-					description: "模块依赖入口",
+					label: "依赖模块",
+					value: String(scriptSummary.dependencies.length),
+					description: "按模块聚合后的依赖入口",
+				},
+				{
+					label: "Exports",
+					value: String(scriptSummary.exports.length),
+					description: "对外暴露入口",
+				},
+				{
+					label: "Hooks",
+					value: String(scriptSummary.hooks.length),
+					description: "hooks / composables 入口",
 				},
 				{
 					label: "Functions",
@@ -74,13 +130,10 @@ export class AstSummaryBuilder {
 					description: "函数和方法入口",
 				},
 				{
-					label: "State",
-					value: String(scriptSummary.state.length),
-					description: "变量和属性入口",
-				},
-				{
 					label: "Types / Class",
-					value: String(scriptSummary.types.length + scriptSummary.classes.length),
+					value: String(
+						scriptSummary.types.length + scriptSummary.classes.length
+					),
 					description: "类型和类定义",
 				},
 			],
@@ -139,11 +192,15 @@ export class AstSummaryBuilder {
 	private collectScriptSummary(nodes: WebAstNode[]): ScriptSummaryData {
 		const data: ScriptSummaryData = {
 			imports: [],
+			exports: [],
 			functions: [],
+			hooks: [],
 			state: [],
 			types: [],
 			classes: [],
 			definitions: new Map<string, ScriptDefinition>(),
+			dependencies: [],
+			vueComposition: this.createEmptyVueCompositionInsight(),
 			totalEntries: 0,
 		}
 		for (const node of nodes) {
@@ -153,8 +210,11 @@ export class AstSummaryBuilder {
 				ownerLabel: "",
 			})
 		}
+		data.vueComposition = this.collectVueCompositionInsights(nodes)
 		data.totalEntries =
+			data.exports.length +
 			data.imports.length +
+			data.hooks.length +
 			data.functions.length +
 			data.state.length +
 			data.types.length +
@@ -192,31 +252,38 @@ export class AstSummaryBuilder {
 
 		switch (type) {
 			case "ImportDeclaration":
-				data.imports.push(
-					this.createSummaryItem(node, {
+				{
+					const item = this.createSummaryItem(node, {
 						kind: "import",
 						badge: exportedBadge,
 					})
-				)
+					data.imports.push(item)
+					this.recordDependencyInsight(data.dependencies, node)
+				}
 				this.addDefinitionSymbols(data.definitions, node, "import")
 				return
 			case "FunctionDeclaration":
 			case "TSDeclareFunction":
-				data.functions.push(
-					this.createSummaryItem(node, {
+				{
+					const item = this.createSummaryItem(node, {
 						kind: "function",
 						badge: exportedBadge,
 					})
-				)
+					data.functions.push(item)
+					this.maybeAddHookSummary(data.hooks, item, node)
+					this.maybeAddExportSummary(data.exports, item, context.exported)
+				}
 				this.addDefinitionSymbols(data.definitions, node, "function")
 				return
 			case "ClassDeclaration":
-				data.classes.push(
-					this.createSummaryItem(node, {
+				{
+					const item = this.createSummaryItem(node, {
 						kind: "class",
 						badge: exportedBadge,
 					})
-				)
+					data.classes.push(item)
+					this.maybeAddExportSummary(data.exports, item, context.exported)
+				}
 				this.addDefinitionSymbols(data.definitions, node, "class")
 				this.walkScriptChildren(node, data, {
 					...context,
@@ -224,25 +291,29 @@ export class AstSummaryBuilder {
 				})
 				return
 			case "VariableDeclaration":
-				data.state.push(
-					this.createSummaryItem(node, {
+				{
+					const item = this.createSummaryItem(node, {
 						kind: "state",
 						badge: exportedBadge,
 					})
-				)
+					data.state.push(item)
+					this.maybeAddHookSummary(data.hooks, item, node)
+					this.maybeAddExportSummary(data.exports, item, context.exported)
+				}
 				this.addDefinitionSymbols(data.definitions, node, "state")
 				return
 			case "ClassMethod":
 			case "ObjectMethod":
 			case "TSMethodSignature":
 				if (!context.insideFunction) {
-					data.functions.push(
-						this.createSummaryItem(node, {
-							kind: "function",
-							badge: exportedBadge || "method",
-							description: ownerDescription,
-						})
-					)
+					const item = this.createSummaryItem(node, {
+						kind: "function",
+						badge: exportedBadge || "method",
+						description: ownerDescription,
+					})
+					data.functions.push(item)
+					this.maybeAddHookSummary(data.hooks, item, node)
+					this.maybeAddExportSummary(data.exports, item, context.exported)
 					this.addDefinitionSymbols(data.definitions, node, "function")
 				}
 				return
@@ -250,13 +321,13 @@ export class AstSummaryBuilder {
 			case "ClassPrivateProperty":
 			case "TSPropertySignature":
 				if (!context.insideFunction) {
-					data.state.push(
-						this.createSummaryItem(node, {
-							kind: "state",
-							badge: exportedBadge || "property",
-							description: ownerDescription,
-						})
-					)
+					const item = this.createSummaryItem(node, {
+						kind: "state",
+						badge: exportedBadge || "property",
+						description: ownerDescription,
+					})
+					data.state.push(item)
+					this.maybeAddExportSummary(data.exports, item, context.exported)
 					this.addDefinitionSymbols(data.definitions, node, "state")
 				}
 				return
@@ -264,12 +335,14 @@ export class AstSummaryBuilder {
 			case "TSInterfaceDeclaration":
 			case "TSEnumDeclaration":
 			case "TSModuleDeclaration":
-				data.types.push(
-					this.createSummaryItem(node, {
+				{
+					const item = this.createSummaryItem(node, {
 						kind: "type",
 						badge: exportedBadge,
 					})
-				)
+					data.types.push(item)
+					this.maybeAddExportSummary(data.exports, item, context.exported)
+				}
 				this.addDefinitionSymbols(data.definitions, node, "type")
 				return
 			default: {
@@ -294,6 +367,15 @@ export class AstSummaryBuilder {
 
 	private buildScriptSections(data: ScriptSummaryData): AstSummarySection[] {
 		const sections: AstSummarySection[] = []
+		if (data.exports.length) {
+			sections.push({
+				id: "script-exports",
+				title: "Exports",
+				description: "对外暴露的函数、状态、类型与类入口。",
+				items: data.exports,
+				emptyText: "没有 export 入口。",
+			})
+		}
 		if (data.imports.length) {
 			sections.push({
 				id: "script-imports",
@@ -301,6 +383,15 @@ export class AstSummaryBuilder {
 				description: "依赖从哪来，一眼能看出来。",
 				items: data.imports,
 				emptyText: "没有 import。",
+			})
+		}
+		if (data.hooks.length) {
+			sections.push({
+				id: "script-hooks",
+				title: "Hooks / Composables",
+				description: "useXxx 入口，适合快速定位副作用或复用逻辑。",
+				items: data.hooks,
+				emptyText: "没有 hooks 或 composables。",
 			})
 		}
 		if (data.functions.length) {
@@ -455,6 +546,8 @@ export class AstSummaryBuilder {
 					? `template: ${entry.sources.join(" / ")} -> script: ${definition.label}`
 					: `template: ${entry.sources.join(" / ")} -> script 摘要里未找到同名入口`,
 				location: definition?.location || entry.location,
+				copyText: entry.name,
+				actionLabel: definition ? "复制联动符号" : "复制缺口符号",
 			}
 			if (definition) linked.push(summaryItem)
 			else missing.push(summaryItem)
@@ -532,6 +625,8 @@ export class AstSummaryBuilder {
 				badge: `x${entry.count}`,
 				description: "点击可跳到首个出现位置",
 				location: entry.location,
+				copyText: tagName,
+				actionLabel: "复制标签名",
 			}))
 	}
 
@@ -547,9 +642,353 @@ export class AstSummaryBuilder {
 				kind: "text",
 				description: "点击可定位到文本节点",
 				location: node.location,
+				copyText: content,
+				actionLabel: "复制文本片段",
 			})
 		})
 		return items
+	}
+
+	private buildTemplateLinkSections(
+		templateSummary: TemplateSummaryData
+	): AstSummarySection[] {
+		const sections: AstSummarySection[] = []
+		if (templateSummary.linked.length) {
+			sections.push({
+				id: "template-links",
+				title: "模板到脚本联动",
+				description: "模板里使用的组件、变量和函数，已在脚本摘要中找到对应入口。",
+				items: templateSummary.linked,
+				emptyText: "还没有可确认的模板联动。",
+			})
+		}
+		if (templateSummary.missing.length) {
+			sections.push({
+				id: "template-missing",
+				title: "模板潜在缺口",
+				description: "模板里引用了，但脚本摘要里还没定位到，适合优先排查。",
+				items: templateSummary.missing,
+				emptyText: "没有明显的模板缺口。",
+			})
+		}
+		return sections
+	}
+
+	private buildDependencySections(
+		dependencies: DependencyInsight[]
+	): AstSummarySection[] {
+		const groups: Array<{
+			id: DependencyInsight["group"]
+			title: string
+			description: string
+		}> = [
+			{
+				id: "builtin",
+				title: "Node.js 内置依赖",
+				description: "运行时自带模块，通常代表 IO、路径或系统能力。",
+			},
+			{
+				id: "external",
+				title: "第三方依赖",
+				description: "npm / pnpm 装进来的依赖，适合快速判断文件外部耦合面。",
+			},
+			{
+				id: "internal",
+				title: "项目内部依赖",
+				description: "本地 alias 或相对路径依赖，能帮助你顺着文件关系继续追。",
+			},
+		]
+
+		return groups
+			.map((group) => {
+				const items = dependencies
+					.filter((entry) => entry.group === group.id)
+					.sort((a, b) => a.modulePath.localeCompare(b.modulePath))
+					.map((entry) => ({
+						label: entry.modulePath,
+						kind: group.id,
+						badge: entry.importedCount ? `${entry.importedCount} imports` : undefined,
+						description: entry.symbols.length
+							? `引入: ${entry.symbols.join(", ")}`
+							: "副作用依赖或未显式命名导入",
+						location: entry.location,
+						copyText: entry.modulePath,
+						actionLabel: "复制模块路径",
+					}))
+
+				if (!items.length) return null
+				return {
+					id: `dependency-${group.id}`,
+					title: group.title,
+					description: group.description,
+					items,
+					emptyText: "暂无依赖。",
+				} as AstSummarySection
+			})
+			.filter((section): section is AstSummarySection => Boolean(section))
+	}
+
+	private buildVueCompositionSections(
+		insight: VueCompositionInsight
+	): AstSummarySection[] {
+		const sections: AstSummarySection[] = []
+		const contractItems = [
+			...insight.props,
+			...insight.emits,
+			...insight.expose,
+		]
+		if (contractItems.length) {
+			sections.push({
+				id: "vue-contract",
+				title: "组件契约",
+				description: "props、emits、expose 是这个组件对外怎么沟通的入口。",
+				items: contractItems,
+				emptyText: "没有识别到组件契约入口。",
+			})
+		}
+
+		const reactivityItems = [
+			...insight.refs,
+			...insight.reactive,
+			...insight.computed,
+		]
+		if (reactivityItems.length) {
+			sections.push({
+				id: "vue-reactivity",
+				title: "响应式状态",
+				description: "ref / reactive / computed 帮你快速判断状态来源和派生关系。",
+				items: reactivityItems,
+				emptyText: "没有识别到响应式状态入口。",
+			})
+		}
+
+		const effectItems = [...insight.watches, ...insight.lifecycle]
+		if (effectItems.length) {
+			sections.push({
+				id: "vue-effects",
+				title: "副作用与生命周期",
+				description: "watch 和生命周期钩子是定位副作用最有效的入口。",
+				items: effectItems,
+				emptyText: "没有识别到副作用或生命周期入口。",
+			})
+		}
+
+		return sections
+	}
+
+	private countVueCompositionItems(insight: VueCompositionInsight): number {
+		return (
+			insight.props.length +
+			insight.emits.length +
+			insight.expose.length +
+			insight.refs.length +
+			insight.computed.length +
+			insight.reactive.length +
+			insight.watches.length +
+			insight.lifecycle.length
+		)
+	}
+
+	private createEmptyVueCompositionInsight(): VueCompositionInsight {
+		return {
+			props: [],
+			emits: [],
+			expose: [],
+			refs: [],
+			computed: [],
+			reactive: [],
+			watches: [],
+			lifecycle: [],
+		}
+	}
+
+	private collectVueCompositionInsights(nodes: WebAstNode[]): VueCompositionInsight {
+		const insight = this.createEmptyVueCompositionInsight()
+		this.walkNodes(nodes, (node) => {
+			const type = node.name || ""
+			if (type === "VariableDeclaration") {
+				for (const declaration of this.extractVariableCallEntries(node.label)) {
+					const item: AstSummaryItem = {
+						label: `${declaration.name} = ${declaration.callee}()`,
+						kind: declaration.callee,
+						location: node.location,
+						copyText: declaration.name,
+						actionLabel: "复制变量名",
+					}
+					if (this.isRefCallee(declaration.callee)) {
+						insight.refs.push(item)
+					} else if (this.isReactiveCallee(declaration.callee)) {
+						insight.reactive.push(item)
+					} else if (this.isComputedCallee(declaration.callee)) {
+						insight.computed.push(item)
+					}
+				}
+				return
+			}
+
+			if (type !== "CallExpression") {
+				return
+			}
+
+			const callName = this.getCallExpressionName(node)
+			if (!callName) return
+			const item: AstSummaryItem = {
+				label: `${callName}()`,
+				kind: "call",
+				location: node.location,
+				copyText: callName,
+				actionLabel: "复制调用名",
+			}
+
+			if (callName === "defineProps" || callName === "withDefaults") {
+				insight.props.push({
+					...item,
+					kind: "props",
+				})
+				return
+			}
+			if (callName === "defineEmits") {
+				insight.emits.push({
+					...item,
+					kind: "emits",
+				})
+				return
+			}
+			if (callName === "defineExpose") {
+				const exposeItems = this.extractVueExposeItems(node)
+				if (exposeItems.length) {
+					insight.expose.push(...exposeItems)
+					return
+				}
+				insight.expose.push({
+					...item,
+					kind: "expose",
+					badge: "defineExpose",
+					description: "defineExpose 对外暴露入口",
+				})
+				return
+			}
+			if (this.isWatchCallee(callName)) {
+				insight.watches.push({
+					...item,
+					kind: "watch",
+				})
+				return
+			}
+			if (this.isLifecycleCallee(callName)) {
+				insight.lifecycle.push({
+					...item,
+					kind: "lifecycle",
+				})
+			}
+		})
+		return insight
+	}
+
+	private mergeVueExposeExports(scriptSummary: ScriptSummaryData) {
+		if (!scriptSummary.vueComposition.expose.length) {
+			return
+		}
+		this.mergeSummaryItems(scriptSummary.exports, scriptSummary.vueComposition.expose)
+		scriptSummary.totalEntries =
+			scriptSummary.exports.length +
+			scriptSummary.imports.length +
+			scriptSummary.hooks.length +
+			scriptSummary.functions.length +
+			scriptSummary.state.length +
+			scriptSummary.types.length +
+			scriptSummary.classes.length
+	}
+
+	private maybeAddExportSummary(
+		target: AstSummaryItem[],
+		item: AstSummaryItem,
+		isExported: boolean
+	) {
+		if (!isExported) return
+		target.push({
+			...item,
+			badge: item.kind || item.badge || "export",
+			copyText: item.copyText || item.label,
+			actionLabel: item.actionLabel || "复制入口",
+		})
+	}
+
+	private maybeAddHookSummary(
+		target: AstSummaryItem[],
+		item: AstSummaryItem,
+		node: WebAstNode
+	) {
+		const names = Array.isArray(node.symbols) ? node.symbols : []
+		const hookName = names.find((name) => /^use[A-Z0-9_]/.test(name))
+		if (!hookName && !this.looksLikeUseCall(node.label)) {
+			return
+		}
+		target.push({
+			...item,
+			kind: "hook",
+			badge: item.badge || "use",
+			copyText: hookName || item.copyText || item.label,
+			actionLabel: "复制 hook 名",
+		})
+	}
+
+	private extractVueExposeItems(node: WebAstNode): AstSummaryItem[] {
+		const items: AstSummaryItem[] = []
+		for (const child of node.children || []) {
+			if (child.name !== "ObjectExpression") {
+				continue
+			}
+			for (const entry of child.children || []) {
+				if (
+					entry.name !== "ObjectProperty" &&
+					entry.name !== "ObjectMethod"
+				) {
+					continue
+				}
+				const exposedName =
+					entry.name === "ObjectMethod"
+						? this.extractFunctionLikeSymbols(entry.label)[0] || ""
+						: this.extractPropertyLikeName(entry.label)
+				if (!this.isIdentifierLike(exposedName)) {
+					continue
+				}
+				const isMethod = entry.name === "ObjectMethod"
+				items.push({
+					label: isMethod ? `${exposedName}()` : exposedName,
+					kind: "expose",
+					badge: "defineExpose",
+					description: "defineExpose 对外暴露成员",
+					location: entry.location || node.location,
+					copyText: exposedName,
+					actionLabel: isMethod ? "复制暴露方法名" : "复制暴露字段名",
+				})
+			}
+		}
+		return this.deduplicateSummaryItems(items)
+	}
+
+	private recordDependencyInsight(
+		dependencies: DependencyInsight[],
+		node: WebAstNode
+	) {
+		const modulePath = this.extractImportModulePath(node.label)
+		if (!modulePath) return
+		const symbols = this.extractImportSymbols(node.label)
+		const existing = dependencies.find((entry) => entry.modulePath === modulePath)
+		if (existing) {
+			const merged = new Set([...existing.symbols, ...symbols])
+			existing.symbols = [...merged]
+			existing.importedCount = existing.symbols.length
+			return
+		}
+		dependencies.push({
+			modulePath,
+			group: this.classifyDependencyGroup(modulePath),
+			importedCount: symbols.length,
+			symbols,
+			location: node.location,
+		})
 	}
 
 	private walkNodes(nodes: WebAstNode[], visitor: (node: WebAstNode) => void) {
@@ -599,6 +1038,8 @@ export class AstSummaryBuilder {
 			description: overrides.description,
 			location: overrides.location || node.location,
 			status: overrides.status,
+			copyText: overrides.copyText || node.label,
+			actionLabel: overrides.actionLabel,
 		}
 	}
 
@@ -639,6 +1080,410 @@ export class AstSummaryBuilder {
 				category: "import",
 			})
 		}
+	}
+
+	private mergeVuePropDefinitions(
+		definitions: Map<string, ScriptDefinition>,
+		nodes: WebAstNode[]
+	) {
+		const localTypeDefinitions = this.collectLocalTypeDefinitions(nodes)
+		const propDefinitions = this.collectVuePropDefinitions(
+			nodes,
+			localTypeDefinitions
+		)
+		for (const [name, definition] of propDefinitions) {
+			if (definitions.has(name)) continue
+			definitions.set(name, definition)
+		}
+	}
+
+	private collectLocalTypeDefinitions(
+		nodes: WebAstNode[]
+	): Map<string, WebAstNode> {
+		const definitions = new Map<string, WebAstNode>()
+		this.walkNodes(nodes, (node) => {
+			if (
+				node.name !== "TSInterfaceDeclaration" &&
+				node.name !== "TSTypeAliasDeclaration"
+			) {
+				return
+			}
+			const typeName = String(node.label || "").trim()
+			if (!typeName || definitions.has(typeName)) return
+			definitions.set(typeName, node)
+		})
+		return definitions
+	}
+
+	private collectVuePropDefinitions(
+		nodes: WebAstNode[],
+		localTypeDefinitions: Map<string, WebAstNode>
+	): Map<string, ScriptDefinition> {
+		const definitions = new Map<string, ScriptDefinition>()
+		this.walkNodes(nodes, (node) => {
+			if (
+				node.name === "CallExpression" &&
+				this.getCallExpressionName(node) === "defineProps"
+			) {
+				for (const prop of this.extractVuePropsFromDefinePropsNode(
+					node,
+					localTypeDefinitions
+				)) {
+					if (!definitions.has(prop.name)) {
+						definitions.set(prop.name, prop)
+					}
+				}
+				return
+			}
+
+			if (
+				node.name === "ObjectProperty" &&
+				this.extractPropertyLikeName(node.label) === "props"
+			) {
+				for (const prop of this.extractVuePropsFromPropsOptionNode(
+					node,
+					localTypeDefinitions
+				)) {
+					if (!definitions.has(prop.name)) {
+						definitions.set(prop.name, prop)
+					}
+				}
+			}
+		})
+		return definitions
+	}
+
+	private extractVuePropsFromDefinePropsNode(
+		node: WebAstNode,
+		localTypeDefinitions: Map<string, WebAstNode>
+	): ScriptDefinition[] {
+		const definitions: ScriptDefinition[] = []
+		for (const child of node.children || []) {
+			if (child.name === "ObjectExpression") {
+				definitions.push(...this.extractVuePropsFromObjectExpression(child))
+				continue
+			}
+			if (child.name === "ArrayExpression") {
+				definitions.push(...this.extractVuePropsFromArrayExpression(child))
+				continue
+			}
+			if (
+				child.name === "TSTypeParameterInstantiation" ||
+				child.name === "TypeParameterInstantiation" ||
+				this.isSupportedVuePropTypeNode(child.name)
+			) {
+				definitions.push(
+					...this.extractVuePropsFromTypeNode(child, localTypeDefinitions)
+				)
+			}
+		}
+		return this.deduplicateScriptDefinitions(definitions)
+	}
+
+	private extractVuePropsFromPropsOptionNode(
+		node: WebAstNode,
+		localTypeDefinitions: Map<string, WebAstNode>
+	): ScriptDefinition[] {
+		const definitions: ScriptDefinition[] = []
+		for (const child of node.children || []) {
+			if (child.name === "Identifier" && child.label === "props") {
+				continue
+			}
+			if (child.name === "ObjectExpression") {
+				definitions.push(...this.extractVuePropsFromObjectExpression(child))
+				continue
+			}
+			if (child.name === "ArrayExpression") {
+				definitions.push(...this.extractVuePropsFromArrayExpression(child))
+				continue
+			}
+			if (this.isSupportedVuePropTypeNode(child.name)) {
+				definitions.push(
+					...this.extractVuePropsFromTypeNode(child, localTypeDefinitions)
+				)
+			}
+		}
+		return this.deduplicateScriptDefinitions(definitions)
+	}
+
+	private extractVuePropsFromObjectExpression(
+		node: WebAstNode
+	): ScriptDefinition[] {
+		const definitions: ScriptDefinition[] = []
+		for (const child of node.children || []) {
+			if (
+				child.name !== "ObjectProperty" &&
+				child.name !== "ObjectMethod" &&
+				child.name !== "TSPropertySignature" &&
+				child.name !== "TSMethodSignature"
+			) {
+				continue
+			}
+			const propName = this.extractPropertyLikeName(child.label)
+			const definition = this.createVuePropDefinition(propName, child.location)
+			if (definition) {
+				definitions.push(definition)
+			}
+		}
+		return definitions
+	}
+
+	private extractVuePropsFromArrayExpression(node: WebAstNode): ScriptDefinition[] {
+		const definitions: ScriptDefinition[] = []
+		for (const child of node.children || []) {
+			const propName = this.extractArrayItemPropName(child)
+			const definition = this.createVuePropDefinition(propName, child.location)
+			if (definition) {
+				definitions.push(definition)
+			}
+		}
+		return definitions
+	}
+
+	private extractVuePropsFromTypeNode(
+		node: WebAstNode,
+		localTypeDefinitions: Map<string, WebAstNode>,
+		visitedTypes = new Set<string>()
+	): ScriptDefinition[] {
+		if (!node.name) return []
+
+		if (
+			node.name === "TSTypeParameterInstantiation" ||
+			node.name === "TypeParameterInstantiation" ||
+			node.name === "TSTypeAnnotation" ||
+			node.name === "TSParenthesizedType" ||
+			node.name === "TSIntersectionType" ||
+			node.name === "TSUnionType"
+		) {
+			return this.deduplicateScriptDefinitions(
+				(node.children || []).flatMap((child) =>
+					this.extractVuePropsFromTypeNode(
+						child,
+						localTypeDefinitions,
+						visitedTypes
+					)
+				)
+			)
+		}
+
+		if (node.name === "TSTypeLiteral" || node.name === "TSInterfaceBody") {
+			return this.extractVuePropsFromObjectExpression(node)
+		}
+
+		if (
+			node.name === "TSInterfaceDeclaration" ||
+			node.name === "TSTypeAliasDeclaration"
+		) {
+			return this.deduplicateScriptDefinitions(
+				(node.children || []).flatMap((child) =>
+					this.extractVuePropsFromTypeNode(
+						child,
+						localTypeDefinitions,
+						visitedTypes
+					)
+				)
+			)
+		}
+
+		if (node.name === "TSTypeReference") {
+			const typeName = this.extractTypeReferenceName(node)
+			if (!typeName || visitedTypes.has(typeName)) {
+				return []
+			}
+			const referencedNode = localTypeDefinitions.get(typeName)
+			if (!referencedNode) {
+				return []
+			}
+			const nextVisitedTypes = new Set(visitedTypes)
+			nextVisitedTypes.add(typeName)
+			return this.extractVuePropsFromTypeNode(
+				referencedNode,
+				localTypeDefinitions,
+				nextVisitedTypes
+			)
+		}
+
+		return []
+	}
+
+	private extractTypeReferenceName(node: WebAstNode): string {
+		for (const child of node.children || []) {
+			if (child.name === "Identifier") {
+				return String(child.label || "").trim()
+			}
+		}
+		return ""
+	}
+
+	private isSupportedVuePropTypeNode(type?: string): boolean {
+		return !!type && [
+			"TSTypeLiteral",
+			"TSInterfaceBody",
+			"TSTypeReference",
+			"TSTypeAliasDeclaration",
+			"TSInterfaceDeclaration",
+			"TSTypeParameterInstantiation",
+			"TypeParameterInstantiation",
+			"TSTypeAnnotation",
+			"TSParenthesizedType",
+			"TSIntersectionType",
+			"TSUnionType",
+		].includes(type)
+	}
+
+	private extractArrayItemPropName(node: WebAstNode): string {
+		const rawName = String(node.label || "").trim()
+		return this.isIdentifierLike(rawName) ? rawName : ""
+	}
+
+	private createVuePropDefinition(
+		name: string,
+		location?: WebLocation
+	): ScriptDefinition | undefined {
+		const normalizedName = String(name || "").trim()
+		if (!this.isIdentifierLike(normalizedName)) {
+			return undefined
+		}
+		return {
+			name: normalizedName,
+			label: `prop ${normalizedName}`,
+			category: "state",
+			location,
+		}
+	}
+
+	private deduplicateScriptDefinitions(
+		definitions: ScriptDefinition[]
+	): ScriptDefinition[] {
+		const unique = new Map<string, ScriptDefinition>()
+		for (const definition of definitions) {
+			if (!definition?.name || unique.has(definition.name)) continue
+			unique.set(definition.name, definition)
+		}
+		return [...unique.values()]
+	}
+
+	private deduplicateSummaryItems(items: AstSummaryItem[]): AstSummaryItem[] {
+		const unique = new Map<string, AstSummaryItem>()
+		for (const item of items) {
+			const identity = this.getSummaryItemIdentity(item)
+			if (!identity || unique.has(identity)) continue
+			unique.set(identity, item)
+		}
+		return [...unique.values()]
+	}
+
+	private mergeSummaryItems(target: AstSummaryItem[], items: AstSummaryItem[]) {
+		const existing = new Set(
+			target.map((item) => this.getSummaryItemIdentity(item))
+		)
+		for (const item of items) {
+			const identity = this.getSummaryItemIdentity(item)
+			if (!identity || existing.has(identity)) {
+				continue
+			}
+			existing.add(identity)
+			target.push(item)
+		}
+	}
+
+	private getSummaryItemIdentity(item: AstSummaryItem): string {
+		return String(item.copyText || item.label || "").trim()
+	}
+
+	private getCallExpressionName(node: WebAstNode): string {
+		const label = String(node.label || "").trim()
+		if (!label) return ""
+		if (label.startsWith("call ")) {
+			return label.slice(5).trim()
+		}
+		return label.replace(/\(\)$/, "").trim()
+	}
+
+	private extractImportModulePath(label: string): string {
+		const source = label.trim()
+		const match = source.match(/\sfrom\s+["']([^"']+)["']$/)
+		if (match?.[1]) {
+			return match[1]
+		}
+		const sideEffectMatch = source.match(/^import\s+["']([^"']+)["']$/)
+		return sideEffectMatch?.[1] || ""
+	}
+
+	private classifyDependencyGroup(
+		modulePath: string
+	): DependencyInsight["group"] {
+		if (
+			modulePath.startsWith("./") ||
+			modulePath.startsWith("../") ||
+			modulePath.startsWith("@/") ||
+			modulePath.startsWith("@@/") ||
+			modulePath.startsWith("@@@/") ||
+			modulePath.startsWith("~/")
+		) {
+			return "internal"
+		}
+		if (BUILTIN_MODULES.has(modulePath)) {
+			return "builtin"
+		}
+		return "external"
+	}
+
+	private extractVariableCallEntries(
+		label: string
+	): Array<{ name: string; callee: string }> {
+		const entries: Array<{ name: string; callee: string }> = []
+		const regex = /([A-Za-z_$][\w$]*)\s*=\s*([A-Za-z_$][\w$]*)\(/g
+		let match: RegExpExecArray | null = null
+		while ((match = regex.exec(label)) !== null) {
+			const name = String(match[1] || "").trim()
+			const callee = String(match[2] || "").trim()
+			if (!name || !callee) continue
+			entries.push({ name, callee })
+		}
+		return entries
+	}
+
+	private looksLikeUseCall(label: string): boolean {
+		return /=\s*use[A-Z0-9_][\w$]*\(/.test(label)
+	}
+
+	private isRefCallee(callee: string): boolean {
+		return new Set(["ref", "shallowRef", "toRef", "customRef"]).has(callee)
+	}
+
+	private isReactiveCallee(callee: string): boolean {
+		return new Set(["reactive", "shallowReactive", "readonly"]).has(callee)
+	}
+
+	private isComputedCallee(callee: string): boolean {
+		return callee === "computed"
+	}
+
+	private isWatchCallee(callee: string): boolean {
+		return new Set([
+			"watch",
+			"watchEffect",
+			"watchPostEffect",
+			"watchSyncEffect",
+		]).has(callee)
+	}
+
+	private isLifecycleCallee(callee: string): boolean {
+		return new Set([
+			"onMounted",
+			"onUpdated",
+			"onUnmounted",
+			"onBeforeMount",
+			"onBeforeUpdate",
+			"onBeforeUnmount",
+			"onActivated",
+			"onDeactivated",
+			"onErrorCaptured",
+			"onServerPrefetch",
+			"onRenderTracked",
+			"onRenderTriggered",
+		]).has(callee)
 	}
 
 	private extractNodeSymbols(rawLabel: string, type?: string): string[] {
@@ -723,10 +1568,217 @@ export class AstSummaryBuilder {
 	}
 
 	private extractAssignmentSymbols(label: string): string[] {
-		const trimmed = label.trim()
-		const eqIndex = trimmed.indexOf("=")
+		const trimmed = this.stripVariableDeclarationPrefix(label.trim())
+		const eqIndex = this.findTopLevelCharIndex(trimmed, ["="])
 		const candidate = (eqIndex >= 0 ? trimmed.slice(0, eqIndex) : trimmed).trim()
-		return this.isIdentifierLike(candidate) ? [candidate] : []
+		return this.extractBindingPatternSymbols(candidate)
+	}
+
+	private extractBindingPatternSymbols(pattern: string): string[] {
+		const normalized = this.stripTopLevelTypeAnnotation(
+			this.unwrapTopLevelParentheses(pattern.trim())
+		)
+		if (!normalized) return []
+
+		const assignmentIndex = this.findTopLevelCharIndex(normalized, ["="])
+		if (assignmentIndex >= 0) {
+			return this.extractBindingPatternSymbols(
+				normalized.slice(0, assignmentIndex)
+			)
+		}
+
+		if (normalized.startsWith("{") && normalized.endsWith("}")) {
+			const symbols: string[] = []
+			for (const part of this.splitTopLevel(normalized.slice(1, -1), ",")) {
+				const entry = part.trim()
+				if (!entry) continue
+				const spreadEntry = entry.startsWith("...") ? entry.slice(3).trim() : entry
+				const colonIndex = this.findTopLevelCharIndex(spreadEntry, [":"])
+				const target =
+					colonIndex >= 0
+						? spreadEntry.slice(colonIndex + 1).trim()
+						: spreadEntry
+				for (const name of this.extractBindingPatternSymbols(target)) {
+					if (!symbols.includes(name)) symbols.push(name)
+				}
+			}
+			return symbols
+		}
+
+		if (normalized.startsWith("[") && normalized.endsWith("]")) {
+			const symbols: string[] = []
+			for (const part of this.splitTopLevel(normalized.slice(1, -1), ",")) {
+				for (const name of this.extractBindingPatternSymbols(part.trim())) {
+					if (!symbols.includes(name)) symbols.push(name)
+				}
+			}
+			return symbols
+		}
+
+		return this.isIdentifierLike(normalized) ? [normalized] : []
+	}
+
+	private stripVariableDeclarationPrefix(value: string): string {
+		return value.replace(/^(?:const|let|var)\s+/, "").trim()
+	}
+
+	private stripTopLevelTypeAnnotation(value: string): string {
+		const colonIndex = this.findTopLevelCharIndex(value, [":"])
+		return (colonIndex >= 0 ? value.slice(0, colonIndex) : value).trim()
+	}
+
+	private unwrapTopLevelParentheses(value: string): string {
+		let current = value.trim()
+		while (this.isWrappedByPair(current, "(", ")")) {
+			current = current.slice(1, -1).trim()
+		}
+		return current
+	}
+
+	private isWrappedByPair(value: string, open: string, close: string): boolean {
+		if (!value.startsWith(open) || !value.endsWith(close)) return false
+		let depth = 0
+		let quote: string | null = null
+		let escaped = false
+		for (let index = 0; index < value.length; index++) {
+			const char = value[index]
+			if (quote) {
+				if (escaped) {
+					escaped = false
+					continue
+				}
+				if (char === "\\") {
+					escaped = true
+					continue
+				}
+				if (char === quote) {
+					quote = null
+				}
+				continue
+			}
+			if (char === `"` || char === `'` || char === "`") {
+				quote = char
+				continue
+			}
+			if (char === open) {
+				depth += 1
+				continue
+			}
+			if (char === close) {
+				depth -= 1
+				if (depth === 0 && index < value.length - 1) {
+					return false
+				}
+			}
+		}
+		return depth === 0
+	}
+
+	private splitTopLevel(value: string, separator: string): string[] {
+		const result: string[] = []
+		let current = ""
+		let parenDepth = 0
+		let bracketDepth = 0
+		let braceDepth = 0
+		let quote: string | null = null
+		let escaped = false
+
+		for (let index = 0; index < value.length; index++) {
+			const char = value[index]
+			if (quote) {
+				current += char
+				if (escaped) {
+					escaped = false
+					continue
+				}
+				if (char === "\\") {
+					escaped = true
+					continue
+				}
+				if (char === quote) {
+					quote = null
+				}
+				continue
+			}
+
+			if (char === `"` || char === `'` || char === "`") {
+				quote = char
+				current += char
+				continue
+			}
+			if (char === "(") parenDepth += 1
+			else if (char === ")") parenDepth = Math.max(0, parenDepth - 1)
+			else if (char === "[") bracketDepth += 1
+			else if (char === "]") bracketDepth = Math.max(0, bracketDepth - 1)
+			else if (char === "{") braceDepth += 1
+			else if (char === "}") braceDepth = Math.max(0, braceDepth - 1)
+
+			if (
+				char === separator &&
+				parenDepth === 0 &&
+				bracketDepth === 0 &&
+				braceDepth === 0
+			) {
+				result.push(current)
+				current = ""
+				continue
+			}
+
+			current += char
+		}
+
+		if (current || value.endsWith(separator)) {
+			result.push(current)
+		}
+
+		return result
+	}
+
+	private findTopLevelCharIndex(value: string, targets: string[]): number {
+		let parenDepth = 0
+		let bracketDepth = 0
+		let braceDepth = 0
+		let quote: string | null = null
+		let escaped = false
+
+		for (let index = 0; index < value.length; index++) {
+			const char = value[index]
+			if (quote) {
+				if (escaped) {
+					escaped = false
+					continue
+				}
+				if (char === "\\") {
+					escaped = true
+					continue
+				}
+				if (char === quote) {
+					quote = null
+				}
+				continue
+			}
+			if (char === `"` || char === `'` || char === "`") {
+				quote = char
+				continue
+			}
+			if (char === "(") parenDepth += 1
+			else if (char === ")") parenDepth = Math.max(0, parenDepth - 1)
+			else if (char === "[") bracketDepth += 1
+			else if (char === "]") bracketDepth = Math.max(0, bracketDepth - 1)
+			else if (char === "{") braceDepth += 1
+			else if (char === "}") braceDepth = Math.max(0, braceDepth - 1)
+
+			if (
+				parenDepth === 0 &&
+				bracketDepth === 0 &&
+				braceDepth === 0 &&
+				targets.includes(char)
+			) {
+				return index
+			}
+		}
+
+		return -1
 	}
 
 	private extractPropertySymbols(label: string): string[] {
@@ -741,6 +1793,15 @@ export class AstSummaryBuilder {
 			return []
 		}
 		return [candidate]
+	}
+
+	private extractPropertyLikeName(label: string): string {
+		const trimmed = label.trim()
+		const separatorIndex = this.findTopLevelCharIndex(trimmed, [":", "="])
+		const candidate =
+			separatorIndex >= 0 ? trimmed.slice(0, separatorIndex).trim() : trimmed
+		const normalized = candidate.replace(/^["'`](.*)["'`]$/, "$1").trim()
+		return normalized
 	}
 
 	private extractSimpleSymbols(label: string): string[] {
@@ -849,6 +1910,9 @@ export class AstSummaryBuilder {
 		while ((match = regex.exec(normalized)) !== null) {
 			const name = match[0]
 			const start = match.index
+			if (this.isInsideStringLiteral(normalized, start)) {
+				continue
+			}
 			const prevChar = start > 0 ? normalized[start - 1] : ""
 			if (prevChar === "." || prevChar === "'" || prevChar === `"` || prevChar === "`") {
 				continue
@@ -868,6 +1932,39 @@ export class AstSummaryBuilder {
 			if (!results.includes(name)) results.push(name)
 		}
 		return results
+	}
+
+	private isInsideStringLiteral(value: string, index: number): boolean {
+		let quote: string | null = null
+		let escaped = false
+		for (let i = 0; i < value.length; i++) {
+			const char = value[i]
+			if (quote) {
+				if (i === index) {
+					return true
+				}
+				if (escaped) {
+					escaped = false
+					continue
+				}
+				if (char === "\\") {
+					escaped = true
+					continue
+				}
+				if (char === quote) {
+					quote = null
+				}
+				continue
+			}
+
+			if (char === "'" || char === `"` || char === "`") {
+				quote = char
+				if (i === index) {
+					return true
+				}
+			}
+		}
+		return false
 	}
 
 	private getPrevNonSpaceChar(value: string, startIndex: number): string {

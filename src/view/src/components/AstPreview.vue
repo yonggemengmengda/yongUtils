@@ -77,6 +77,15 @@
           ({{ formatLocation(node.location) }})
         </span>
       </div>
+      <button
+        v-if="copyText"
+        class="node-copy-button"
+        type="button"
+        title="复制节点摘要"
+        @click.stop="copyNodeLabel"
+      >
+        复制
+      </button>
     </div>
     <div v-show="isExpandedEffective" class="pl-2">
       <AstPreview
@@ -114,6 +123,10 @@ const isExpanded = ref(true)
 const hasChildren = computed(() => props.node.children?.length > 0)
 const isExpandedEffective = computed(() => props.forceExpand ? true : isExpanded.value)
 const nodeKind = computed(() => String(props.node?.kind || "node"))
+const copyText = computed(() => {
+  const label = String(props.node?.label ?? "").trim()
+  return label || ""
+})
 const nodeContentClass = computed(() => ({
   "is-match": isMatch.value,
   "kind-text": nodeKind.value === "text",
@@ -183,6 +196,14 @@ function handleNodeClick() {
       data: safeLocation,
     })
   }, 200)
+}
+
+function copyNodeLabel() {
+  if (!copyText.value || !vscode?.postMessage) return
+  vscode.postMessage({
+    command: "copyToClipboard",
+    text: copyText.value,
+  })
 }
 
 const clickTimer = ref<number | null>(null)
@@ -460,6 +481,25 @@ function getNodeIcon(node: any): string {
   gap: 4px 8px;
   min-width: 0;
   flex: 1 1 auto;
+}
+
+.node-copy-button {
+  opacity: 0;
+  border: 1px solid var(--color-border);
+  background: var(--color-background-secondary);
+  color: var(--color-text-secondary);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 0.68rem;
+  line-height: 1.4;
+  cursor: pointer;
+  flex: 0 0 auto;
+  transition: opacity 0.18s ease;
+}
+
+.node-content:hover .node-copy-button,
+.node-copy-button:focus-visible {
+  opacity: 1;
 }
 
 .node-label {

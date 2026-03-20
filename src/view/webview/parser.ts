@@ -42,6 +42,7 @@ export class AstParser {
 					this.extractVueComponentImportNames(content),
 				].flat()))
 				let scriptChildren: WebAstNode[] = []
+				let scriptSummaryNodes: WebAstNode[] = []
 				let styleChildren: WebAstNode[] = []
 				if (vueAst.template?.length) {
 					templateChildren = this.filter.filterAstNodes(
@@ -58,8 +59,9 @@ export class AstParser {
 					})
 				}
 				if (vueAst.script) {
+					scriptSummaryNodes = this.normalizeAstNodes(vueAst.script)
 					scriptChildren = this.filter.filterAstNodes(
-						this.normalizeAstNodes(vueAst.script),
+						scriptSummaryNodes,
 						"script"
 					)
 					nodes.push({
@@ -93,7 +95,7 @@ export class AstParser {
 							templateChildren,
 							templateComponents,
 							scriptImportNames,
-							scriptChildren
+							scriptSummaryNodes
 						),
 					},
 				}
@@ -495,10 +497,217 @@ export class AstParser {
 	}
 
 	private extractAssignmentSymbols(label: string): string[] {
-		const trimmed = label.trim()
-		const eqIndex = trimmed.indexOf("=")
+		const trimmed = this.stripVariableDeclarationPrefix(label.trim())
+		const eqIndex = this.findTopLevelCharIndex(trimmed, ["="])
 		const candidate = (eqIndex >= 0 ? trimmed.slice(0, eqIndex) : trimmed).trim()
-		return this.isIdentifierLike(candidate) ? [candidate] : []
+		return this.extractBindingPatternSymbols(candidate)
+	}
+
+	private extractBindingPatternSymbols(pattern: string): string[] {
+		const normalized = this.stripTopLevelTypeAnnotation(
+			this.unwrapTopLevelParentheses(pattern.trim())
+		)
+		if (!normalized) return []
+
+		const assignmentIndex = this.findTopLevelCharIndex(normalized, ["="])
+		if (assignmentIndex >= 0) {
+			return this.extractBindingPatternSymbols(
+				normalized.slice(0, assignmentIndex)
+			)
+		}
+
+		if (normalized.startsWith("{") && normalized.endsWith("}")) {
+			const symbols: string[] = []
+			for (const part of this.splitTopLevel(normalized.slice(1, -1), ",")) {
+				const entry = part.trim()
+				if (!entry) continue
+				const spreadEntry = entry.startsWith("...") ? entry.slice(3).trim() : entry
+				const colonIndex = this.findTopLevelCharIndex(spreadEntry, [":"])
+				const target =
+					colonIndex >= 0
+						? spreadEntry.slice(colonIndex + 1).trim()
+						: spreadEntry
+				for (const name of this.extractBindingPatternSymbols(target)) {
+					if (!symbols.includes(name)) symbols.push(name)
+				}
+			}
+			return symbols
+		}
+
+		if (normalized.startsWith("[") && normalized.endsWith("]")) {
+			const symbols: string[] = []
+			for (const part of this.splitTopLevel(normalized.slice(1, -1), ",")) {
+				for (const name of this.extractBindingPatternSymbols(part.trim())) {
+					if (!symbols.includes(name)) symbols.push(name)
+				}
+			}
+			return symbols
+		}
+
+		return this.isIdentifierLike(normalized) ? [normalized] : []
+	}
+
+	private stripVariableDeclarationPrefix(value: string): string {
+		return value.replace(/^(?:const|let|var)\s+/, "").trim()
+	}
+
+	private stripTopLevelTypeAnnotation(value: string): string {
+		const colonIndex = this.findTopLevelCharIndex(value, [":"])
+		return (colonIndex >= 0 ? value.slice(0, colonIndex) : value).trim()
+	}
+
+	private unwrapTopLevelParentheses(value: string): string {
+		let current = value.trim()
+		while (this.isWrappedByPair(current, "(", ")")) {
+			current = current.slice(1, -1).trim()
+		}
+		return current
+	}
+
+	private isWrappedByPair(value: string, open: string, close: string): boolean {
+		if (!value.startsWith(open) || !value.endsWith(close)) return false
+		let depth = 0
+		let quote: string | null = null
+		let escaped = false
+		for (let index = 0; index < value.length; index++) {
+			const char = value[index]
+			if (quote) {
+				if (escaped) {
+					escaped = false
+					continue
+				}
+				if (char === "\\") {
+					escaped = true
+					continue
+				}
+				if (char === quote) {
+					quote = null
+				}
+				continue
+			}
+			if (char === `"` || char === `'` || char === "`") {
+				quote = char
+				continue
+			}
+			if (char === open) {
+				depth += 1
+				continue
+			}
+			if (char === close) {
+				depth -= 1
+				if (depth === 0 && index < value.length - 1) {
+					return false
+				}
+			}
+		}
+		return depth === 0
+	}
+
+	private splitTopLevel(value: string, separator: string): string[] {
+		const result: string[] = []
+		let current = ""
+		let parenDepth = 0
+		let bracketDepth = 0
+		let braceDepth = 0
+		let quote: string | null = null
+		let escaped = false
+
+		for (let index = 0; index < value.length; index++) {
+			const char = value[index]
+			if (quote) {
+				current += char
+				if (escaped) {
+					escaped = false
+					continue
+				}
+				if (char === "\\") {
+					escaped = true
+					continue
+				}
+				if (char === quote) {
+					quote = null
+				}
+				continue
+			}
+
+			if (char === `"` || char === `'` || char === "`") {
+				quote = char
+				current += char
+				continue
+			}
+			if (char === "(") parenDepth += 1
+			else if (char === ")") parenDepth = Math.max(0, parenDepth - 1)
+			else if (char === "[") bracketDepth += 1
+			else if (char === "]") bracketDepth = Math.max(0, bracketDepth - 1)
+			else if (char === "{") braceDepth += 1
+			else if (char === "}") braceDepth = Math.max(0, braceDepth - 1)
+
+			if (
+				char === separator &&
+				parenDepth === 0 &&
+				bracketDepth === 0 &&
+				braceDepth === 0
+			) {
+				result.push(current)
+				current = ""
+				continue
+			}
+
+			current += char
+		}
+
+		if (current || value.endsWith(separator)) {
+			result.push(current)
+		}
+
+		return result
+	}
+
+	private findTopLevelCharIndex(value: string, targets: string[]): number {
+		let parenDepth = 0
+		let bracketDepth = 0
+		let braceDepth = 0
+		let quote: string | null = null
+		let escaped = false
+
+		for (let index = 0; index < value.length; index++) {
+			const char = value[index]
+			if (quote) {
+				if (escaped) {
+					escaped = false
+					continue
+				}
+				if (char === "\\") {
+					escaped = true
+					continue
+				}
+				if (char === quote) {
+					quote = null
+				}
+				continue
+			}
+			if (char === `"` || char === `'` || char === "`") {
+				quote = char
+				continue
+			}
+			if (char === "(") parenDepth += 1
+			else if (char === ")") parenDepth = Math.max(0, parenDepth - 1)
+			else if (char === "[") bracketDepth += 1
+			else if (char === "]") bracketDepth = Math.max(0, bracketDepth - 1)
+			else if (char === "{") braceDepth += 1
+			else if (char === "}") braceDepth = Math.max(0, braceDepth - 1)
+
+			if (
+				parenDepth === 0 &&
+				bracketDepth === 0 &&
+				braceDepth === 0 &&
+				targets.includes(char)
+			) {
+				return index
+			}
+		}
+
+		return -1
 	}
 
 	private extractPropertySymbols(label: string): string[] {

@@ -1,12 +1,20 @@
 import * as vscode from "vscode"
 import * as path from "path"
-import { translateText2EN } from "../utils/translateTextUtils"
 import { translateText, translate2EN } from "../utils/translationUtils"
 import {
 	inferTargetLanguage,
 	TranslationCacheStore,
 } from "../utils/translationCache"
 import { getTranslationAiModelSignature } from "../utils/translationAiConfig"
+import {
+	buildEnglishNamingCandidates,
+	normalizeEnglishNamingText,
+} from "../utils/namingUtils"
+import {
+	buildI18nClipboardText,
+	buildI18nKey,
+	buildI18nReplacementSnippets,
+} from "../utils/i18nUtils"
 
 const DEBUG_STYLE =
 	"background: #9C27B0; color: white;font-weight: bold; padding: 2px 4px;"
@@ -15,6 +23,87 @@ export function registerCommands(
 	context: vscode.ExtensionContext,
 	translationCache: TranslationCacheStore
 ) {
+	const getSelectionTarget = (editor: vscode.TextEditor) => {
+		if (!editor.selection.isEmpty) {
+			return {
+				range: editor.selection,
+				text: editor.document.getText(editor.selection),
+			}
+		}
+
+		const wordRange = editor.document.getWordRangeAtPosition(editor.selection.active)
+		if (!wordRange) {
+			return null
+		}
+
+		return {
+			range: wordRange,
+			text: editor.document.getText(wordRange),
+		}
+	}
+
+	const getSelectedTextTarget = (editor: vscode.TextEditor) => {
+		if (editor.selection.isEmpty) {
+			return null
+		}
+
+		return {
+			range: editor.selection,
+			text: editor.document.getText(editor.selection),
+		}
+	}
+
+	const getExpandedQuotedSelection = (editor: vscode.TextEditor) => {
+		const selected = getSelectedTextTarget(editor)
+		if (!selected?.text.trim()) {
+			return null
+		}
+
+		const trimmedText = selected.text.trim()
+		if (/^(['"`]).*\1$/.test(trimmedText)) {
+			return {
+				range: selected.range,
+				text: trimmedText.slice(1, -1).trim(),
+			}
+		}
+
+		const document = editor.document
+		const startOffset = document.offsetAt(selected.range.start)
+		const endOffset = document.offsetAt(selected.range.end)
+		if (startOffset <= 0 || endOffset >= document.getText().length) {
+			return {
+				range: selected.range,
+				text: trimmedText,
+			}
+		}
+
+		const beforeRange = new vscode.Range(
+			document.positionAt(startOffset - 1),
+			document.positionAt(startOffset)
+		)
+		const afterRange = new vscode.Range(
+			document.positionAt(endOffset),
+			document.positionAt(endOffset + 1)
+		)
+		const beforeChar = document.getText(beforeRange)
+		const afterChar = document.getText(afterRange)
+
+		if (beforeChar && beforeChar === afterChar && [`'`, `"`, "`"].includes(beforeChar)) {
+			return {
+				range: new vscode.Range(
+					document.positionAt(startOffset - 1),
+					document.positionAt(endOffset + 1)
+				),
+				text: trimmedText,
+			}
+		}
+
+		return {
+			range: selected.range,
+			text: trimmedText,
+		}
+	}
+
 	const showTranslateError = (error: unknown) => {
 		const message = error instanceof Error ? error.message : String(error || "翻译失败")
 		vscode.window.showErrorMessage(`翻译失败: ${message}`)
@@ -26,7 +115,6 @@ export function registerCommands(
 			const editor = vscode.window.activeTextEditor
 			if (editor) {
 				const selection = editor.selection
-				// @ts-ignore
 				const selectText = editor.document.getText(selection)
 				// 提取中文部分
 				const chineseText = selectText.replace(/[^\u4e00-\u9fa5]/g, "")
@@ -107,7 +195,7 @@ export function registerCommands(
 	
 	const addEnglishFileDisposable = vscode.commands.registerCommand(
 		"yongutils.createEnglishFile",
-		async (uri: vscode.Uri, _selectedUris: vscode.Uri[]) => {
+		async (uri: vscode.Uri) => {
 			let targetDir: string
 			const stat = await vscode.workspace.fs.stat(uri)
 			if (stat.type === vscode.FileType.Directory) {
@@ -177,11 +265,249 @@ export function registerCommands(
 	const translateToggleDisposable = vscode.commands.registerCommand(
 		"yongutils.translateToggle",
 		async () => {
-			const isTurnOn = context.workspaceState.get("isTurnOn", false)
-			context.workspaceState.update("isTurnOn", !isTurnOn)
+			const isTurnOn = context.workspaceState.get("isTurnOn", true)
+			await context.workspaceState.update("isTurnOn", !isTurnOn)
 			vscode.window.showInformationMessage(
 				`AI自动翻译功能${!isTurnOn ? "已开启" : "已关闭"}!`
 			)
+		}
+	)
+
+	const openToolPanelDisposable = vscode.commands.registerCommand(
+		"yongutils.openToolPanel",
+		async () => {
+			await vscode.commands.executeCommand("workbench.view.extension.yongutils")
+		}
+	)
+
+	const generateEnglishNamesDisposable = vscode.commands.registerCommand(
+		"yongutils.generateEnglishNames",
+		async () => {
+			const editor = vscode.window.activeTextEditor
+			if (!editor) {
+				vscode.window.showWarningMessage("没有活动的编辑器")
+				return
+			}
+
+			const target = getSelectionTarget(editor)
+			const sourceText = target?.text.trim() || ""
+			if (!target || !sourceText) {
+				vscode.window.showInformationMessage("请先选中文本，或将光标放在待命名单词上")
+				return
+			}
+
+			try {
+				let normalizedBaseName = sourceText
+				if (/[\u4e00-\u9fa5]/.test(sourceText)) {
+					const modelSignature = getTranslationAiModelSignature()
+					const cached = translationCache.get({
+						sourceText,
+						scene: "naming",
+						targetLanguage: "en",
+						modelSignature,
+					})
+					const translated =
+						cached || normalizeEnglishNamingText(await translate2EN(sourceText))
+
+					if (!cached && translated) {
+						translationCache.set({
+							sourceText,
+							translatedText: translated,
+							scene: "naming",
+							targetLanguage: "en",
+							modelSignature,
+						})
+					}
+					normalizedBaseName = translated
+				}
+
+				const candidates = buildEnglishNamingCandidates(normalizedBaseName)
+				if (!candidates.length) {
+					vscode.window.showWarningMessage("未能生成可用的英文命名候选")
+					return
+				}
+
+				const selected = await vscode.window.showQuickPick(
+					candidates.map((item) => ({
+						label: item.value,
+						description: item.kind,
+						detail: item.detail,
+					})),
+					{
+						placeHolder: `为“${sourceText}”选择一个英文命名`,
+						matchOnDescription: true,
+						matchOnDetail: true,
+					}
+				)
+
+				if (!selected) {
+					return
+				}
+
+				await editor.edit((editBuilder) => {
+					editBuilder.replace(target.range, selected.label)
+				})
+			} catch (error) {
+				showTranslateError(error)
+			}
+		}
+	)
+
+	const extractI18nEntryDisposable = vscode.commands.registerCommand(
+		"yongutils.extractI18nEntry",
+		async () => {
+			const editor = vscode.window.activeTextEditor
+			if (!editor) {
+				vscode.window.showWarningMessage("没有活动的编辑器")
+				return
+			}
+
+			const target = getExpandedQuotedSelection(editor)
+			const sourceText = target?.text.trim() || ""
+			if (!target || !sourceText) {
+				vscode.window.showInformationMessage("请先选中要提取的中文文案")
+				return
+			}
+
+			if (!/[\u4e00-\u9fa5]/.test(sourceText)) {
+				vscode.window.showInformationMessage("当前选中文本中未检测到中文文案")
+				return
+			}
+
+			try {
+				const modelSignature = getTranslationAiModelSignature()
+				const cachedNaming = translationCache.get({
+					sourceText,
+					scene: "naming",
+					targetLanguage: "en",
+					modelSignature,
+				})
+				const cachedTranslation = translationCache.get({
+					sourceText,
+					scene: "general",
+					targetLanguage: "en",
+					modelSignature,
+				})
+
+				const namingSeed =
+					cachedNaming || normalizeEnglishNamingText(await translate2EN(sourceText))
+				const enText = cachedTranslation || (await translateText(sourceText))
+
+				if (!cachedNaming && namingSeed) {
+					translationCache.set({
+						sourceText,
+						translatedText: namingSeed,
+						scene: "naming",
+						targetLanguage: "en",
+						modelSignature,
+					})
+				}
+
+				if (!cachedTranslation && enText) {
+					translationCache.set({
+						sourceText,
+						translatedText: enText,
+						scene: "general",
+						targetLanguage: "en",
+						modelSignature,
+					})
+				}
+
+				const key = buildI18nKey({
+					filePath: editor.document.uri.fsPath,
+					namingSeed,
+				})
+				const clipboardText = buildI18nClipboardText({
+					key,
+					zhText: sourceText,
+					enText,
+				})
+				await vscode.env.clipboard.writeText(clipboardText)
+
+				const snippetOptions = [
+					...buildI18nReplacementSnippets(key),
+					{
+						label: "仅复制语言包条目",
+						value: "",
+						detail: "不替换代码，只把 key / zh-CN / en-US 条目放进剪贴板",
+					},
+				]
+
+				const selected = await vscode.window.showQuickPick(
+					snippetOptions.map((item) => ({
+						label: item.label,
+						description:
+							item.label === "仅复制语言包条目" ? key : `key: ${key}`,
+						detail: item.detail,
+					})),
+					{
+						placeHolder: `已生成 i18n key：${key}，选择要替换成的代码片段`,
+						matchOnDescription: true,
+						matchOnDetail: true,
+					}
+				)
+
+				if (selected && selected.label !== "仅复制语言包条目") {
+					await editor.edit((editBuilder) => {
+						editBuilder.replace(target.range, selected.label)
+					})
+				}
+
+				vscode.window.showInformationMessage(
+					`i18n 条目已复制到剪贴板: ${key}`
+				)
+			} catch (error) {
+				showTranslateError(error)
+			}
+		}
+	)
+
+	const encodeUriDisposable = vscode.commands.registerCommand(
+		"yongutils.encodeURIComponent",
+		async () => {
+			const editor = vscode.window.activeTextEditor
+			if (!editor) {
+				vscode.window.showWarningMessage("没有活动的编辑器")
+				return
+			}
+
+			const target = getSelectionTarget(editor)
+			if (!target?.text) {
+				vscode.window.showInformationMessage("请先选中需要编码的文本")
+				return
+			}
+
+			await editor.edit((editBuilder) => {
+				editBuilder.replace(target.range, encodeURIComponent(target.text))
+			})
+		}
+	)
+
+	const decodeUriDisposable = vscode.commands.registerCommand(
+		"yongutils.decodeURIComponent",
+		async () => {
+			const editor = vscode.window.activeTextEditor
+			if (!editor) {
+				vscode.window.showWarningMessage("没有活动的编辑器")
+				return
+			}
+
+			const target = getSelectionTarget(editor)
+			if (!target?.text) {
+				vscode.window.showInformationMessage("请先选中需要解码的文本")
+				return
+			}
+
+			try {
+				const decodedText = decodeURIComponent(target.text)
+				await editor.edit((editBuilder) => {
+					editBuilder.replace(target.range, decodedText)
+				})
+			} catch (error) {
+				const message =
+					error instanceof Error ? error.message : String(error || "解码失败")
+				vscode.window.showErrorMessage(`URI 解码失败: ${message}`)
+			}
 		}
 	)
 
@@ -255,6 +581,11 @@ export function registerCommands(
 		translate2EnDisposable,
 		translateDisposable,
 		translateToggleDisposable,
+		openToolPanelDisposable,
+		generateEnglishNamesDisposable,
+		extractI18nEntryDisposable,
+		encodeUriDisposable,
+		decodeUriDisposable,
 		debuggerDisposable
 	)
 }

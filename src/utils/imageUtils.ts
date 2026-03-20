@@ -51,7 +51,7 @@ export async function imgAutoResize({
 	const rootDir = resolveOutputDir(outputDir)
 	ensureOutputDir(rootDir)
 
-	let donePaths: string[] = []
+	const donePaths: string[] = []
 	const errorMessages: string[] = []
 	let attemptCount = 0
 	const validResolutions = resolutions.filter(
@@ -80,9 +80,8 @@ export async function imgAutoResize({
 		}
 		const buffer = parsedInput.buffer
 		const fileType = parsedInput.inputExt
-		let image: any
+		let image: Jimp
 		try {
-			// @ts-ignore 根据图片路径读取图片
 			image = await Jimp.read(buffer)
 		} catch (error) {
 			errorMessages.push(
@@ -212,7 +211,12 @@ function resolveOutputDir(outputDir?: string): string {
 }
 
 function sanitizeFileBaseName(name: string): string {
-	const normalized = name.trim().replace(/[<>:"/\\|?*\u0000-\u001F]/g, "_")
+	const normalized = name
+		.trim()
+		.replace(/[<>:"/\\|?*]+/g, "_")
+		.split("")
+		.map((character) => (character.charCodeAt(0) < 32 ? "_" : character))
+		.join("")
 	return normalized || "image"
 }
 

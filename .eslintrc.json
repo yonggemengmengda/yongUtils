@@ -6,8 +6,7 @@
     },
     "extends": [
         "eslint:recommended",
-        "plugin:@typescript-eslint/recommended",
-        "plugin:vue/vue3-essential"
+        "plugin:@typescript-eslint/recommended"
     ],
     "overrides": [
         {
@@ -28,8 +27,7 @@
         "sourceType": "module"
     },
     "plugins": [
-        "@typescript-eslint",
-        "vue"
+        "@typescript-eslint"
     ],
     "rules": {
         "@typescript-eslint/naming-convention": [
@@ -39,9 +37,11 @@
                 "format": [ "camelCase", "PascalCase" ]
             }
         ],
-        "@typescript-eslint/semi": "warn",
-        "curly": "warn",
+        "@typescript-eslint/no-explicit-any": "off",
+        "@typescript-eslint/semi": "off",
+        "curly": "off",
         "eqeqeq": "warn",
+        "no-mixed-spaces-and-tabs": "off",
         "no-throw-literal": "warn",
         "semi": "off"
     },

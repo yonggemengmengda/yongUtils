@@ -15,7 +15,7 @@ export function register(
 		{
 			provideHover(document, position) {
 				const range = document.getWordRangeAtPosition(position)
-				const isTurnOn = context.workspaceState.get("isTurnOn", false)
+				const isTurnOn = context.workspaceState.get("isTurnOn", true)
 				if (!range) return null
 
 				const word = document.getText(range)

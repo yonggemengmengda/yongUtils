@@ -22,8 +22,13 @@
 		"onCommand:yongutils.translateEN",
 		"onCommand:yongutils.translate",
 		"onCommand:yongutils.parseToTs",
+		"onCommand:yongutils.generateEnglishNames",
+		"onCommand:yongutils.extractI18nEntry",
 		"onCommand:yongutils.encodeURIComponent",
 		"onCommand:yongutils.decodeURIComponent",
+		"onCommand:yongutils.translateToggle",
+		"onCommand:yongutils.openToolPanel",
+		"onCommand:yongutils.debugLogger",
 		"onView:yongUtils.webview"
 	],
 	"main": "./dist/extension.js",
@@ -50,12 +55,32 @@
 				"title": "解析为ts类型"
 			},
 			{
+				"command": "yongutils.generateEnglishNames",
+				"title": "生成英文命名候选"
+			},
+			{
+				"command": "yongutils.extractI18nEntry",
+				"title": "提取为i18n文案"
+			},
+			{
 				"command": "yongutils.encodeURIComponent",
 				"title": "encodeURI"
 			},
 			{
 				"command": "yongutils.decodeURIComponent",
 				"title": "decodeURI"
+			},
+			{
+				"command": "yongutils.translateToggle",
+				"title": "AI自动翻译开关"
+			},
+			{
+				"command": "yongutils.openToolPanel",
+				"title": "打开 YongUtils 工具面板"
+			},
+			{
+				"command": "yongutils.debugLogger",
+				"title": "插入调试日志"
 			}
 		],
 		"keybindings": [
@@ -74,7 +99,7 @@
 			"activitybar": [
 				{
 					"id": "yongutils",
-					"title": "勇哥",
+					"title": "YongUtils",
 					"icon": "media/logo.svg"
 				}
 			]
@@ -85,7 +110,7 @@
 					"icon": "media/logo.svg",
 					"type": "webview",
 					"id": "yongUtils.webview",
-					"name": "工具集"
+					"name": "YongUtils 工具集"
 				}
 			]
 		},
@@ -94,7 +119,7 @@
 				{
 					"command": "yongutils.sortImports",
 					"group": "navigation",
-					"when": "editorLangId == javascript || editorLangId == typescript || editorLangId == vue"
+					"when": "editorLangId == javascript || editorLangId == javascriptreact || editorLangId == typescript || editorLangId == typescriptreact || editorLangId == vue"
 				},
 				{
 					"command": "yongutils.translateEN",
@@ -106,6 +131,14 @@
 				},
 				{
 					"command": "yongutils.parseToTs",
+					"group": "navigation"
+				},
+				{
+					"command": "yongutils.generateEnglishNames",
+					"group": "navigation"
+				},
+				{
+					"command": "yongutils.extractI18nEntry",
 					"group": "navigation"
 				},
 				{
@@ -128,36 +161,51 @@
 		"configuration": {
 			"title": "yongUtilsConfiguration",
 			"properties": {
-				"importSorter.addGroupComments": {
+				"yongutils.importSorter.addGroupComments": {
 					"type": "boolean",
 					"default": true,
 					"description": "添加分组注释"
 				},
-				"importSorter.sortByLength": {
+				"yongutils.importSorter.sortByLength": {
 					"type": "boolean",
-					"default": true,
+					"default": false,
 					"description": "按分块由短到长排序"
 				},
-				"importSorter.internalLibPrefixes": {
+				"yongutils.importSorter.sortOnSave": {
+					"type": "boolean",
+					"default": false,
+					"description": "保存文件时自动整理 import"
+				},
+				"yongutils.importSorter.removeUnusedImports": {
+					"type": "boolean",
+					"default": true,
+					"description": "整理 import 时同时移除未使用的导入"
+				},
+				"yongutils.importSorter.placeSideEffectImportsFirst": {
+					"type": "boolean",
+					"default": true,
+					"description": "将副作用 import 固定排在最前面"
+				},
+				"yongutils.importSorter.internalLibPrefixes": {
 					"type": "array",
 					"default": [
 						"@@@/",
 						"@@/",
 						"@/",
-						"./",
-						"../"
+						"~/"
 					],
-					"description": "内部库的前缀，用于区分公共库和本地库"
+					"description": "项目内部 alias 前缀，用于区分第三方依赖和本地别名模块"
 				},
-				"importSorter.customGroupNames": {
+				"yongutils.importSorter.customGroupNames": {
 					"type": "object",
 					"default": {
-						"public-component": "公共组件",
-						"local-component": "本地组件",
-						"public-utility": "公共工具函数",
-						"local-utility": "本地工具函数",
-						"public-library": "公共库",
-						"local-library": "本地库"
+						"side-effect": "副作用导入",
+						"builtin": "Node.js 内置模块",
+						"external": "第三方依赖",
+						"internal-alias": "项目别名模块",
+						"parent": "父级目录模块",
+						"sibling": "同级目录模块",
+						"index": "Index 模块"
 					},
 					"description": "自定义分组注释名称"
 				}
