@@ -62,6 +62,16 @@ type ImportEntry = {
 	isTypeOnly: boolean
 	specifiers: ImportSpecifierInfo[]
 	leadingComments: string[]
+	isMultiline: boolean
+	quote: "'" | '"'
+	hasSemicolon: boolean
+	multilineIndent: string
+}
+
+type ImportRenderStyle = {
+	quote: "'" | '"'
+	semicolon: boolean
+	multilineIndent: string
 }
 
 export async function resolveImportSortOptions(
@@ -205,8 +215,14 @@ async function computeModuleImportEdits(input: {
 	}
 
 	let entries = importNodes.map((node) =>
-		createImportEntry(node, input.options.internalLibPrefixes, input.options.placeSideEffectImportsFirst)
+		createImportEntry(
+			node,
+			input.content,
+			input.options.internalLibPrefixes,
+			input.options.placeSideEffectImportsFirst
+		)
 	)
+	const renderStyle = detectImportRenderStyle(entries)
 
 	if (input.options.removeUnusedImports && !input.disableUnusedRemoval) {
 		entries = removeUnusedImportSpecifiers(
@@ -226,7 +242,8 @@ async function computeModuleImportEdits(input: {
 	const replacementText = formatImportEntries(
 		sortedEntries,
 		input.options,
-		hasFollowingCode
+		hasFollowingCode,
+		renderStyle
 	)
 	const originalText = input.content.slice(replaceStart, replaceEnd)
 
@@ -266,11 +283,13 @@ function getProgramPath(ast: t.File): NodePath<t.Program> | null {
 
 function createImportEntry(
 	node: t.ImportDeclaration,
+	content: string,
 	internalLibPrefixes: string[],
 	placeSideEffectImportsFirst: boolean
 ): ImportEntry {
 	const modulePath = String(node.source.value || "")
 	const isSideEffect = node.specifiers.length === 0
+	const originalText = content.slice(node.start || 0, node.end || 0)
 	return {
 		modulePath,
 		group: classifyImportGroup(
@@ -283,6 +302,10 @@ function createImportEntry(
 		isTypeOnly: node.importKind === "type",
 		specifiers: node.specifiers.map(toSpecifierInfo),
 		leadingComments: (node.leadingComments || []).map(formatComment).filter(Boolean),
+		isMultiline: /[\r\n]/.test(originalText),
+		quote: detectImportQuote(originalText),
+		hasSemicolon: /;\s*$/.test(originalText),
+		multilineIndent: detectMultilineIndent(originalText),
 	}
 }
 
@@ -364,6 +387,11 @@ function removeUnusedImportSpecifiers(
 	programPath: NodePath<t.Program>,
 	extraUsedNames: Set<string>
 ): ImportEntry[] {
+	const usedNames = new Set([
+		...extraUsedNames,
+		...collectTypeOnlyImportUsageNames(programPath),
+	])
+
 	return entries
 		.map((entry) => {
 			if (entry.isSideEffect) {
@@ -371,7 +399,7 @@ function removeUnusedImportSpecifiers(
 			}
 
 			const specifiers = entry.specifiers.filter((specifier) =>
-				isImportSpecifierUsed(specifier.localName, programPath, extraUsedNames)
+				isImportSpecifierUsed(specifier.localName, programPath, usedNames)
 			)
 
 			if (!specifiers.length) {
@@ -384,6 +412,67 @@ function removeUnusedImportSpecifiers(
 			}
 		})
 		.filter((entry): entry is ImportEntry => Boolean(entry))
+}
+
+function collectTypeOnlyImportUsageNames(
+	programPath: NodePath<t.Program>
+): Set<string> {
+	const usedNames = new Set<string>()
+
+	programPath.traverse({
+		TSTypeReference(path) {
+			addImportBindingUsage(path.get("typeName"), usedNames)
+		},
+		TSExpressionWithTypeArguments(path) {
+			addImportBindingUsage(path.get("expression"), usedNames)
+		},
+		TSTypeQuery(path) {
+			addImportBindingUsage(path.get("exprName"), usedNames)
+		},
+	})
+
+	return usedNames
+}
+
+function addImportBindingUsage(
+	referencePath: NodePath<any> | null | undefined,
+	usedNames: Set<string>
+) {
+	const identifierPath = getLeftMostReferenceIdentifierPath(referencePath)
+	if (!identifierPath) {
+		return
+	}
+
+	const binding = identifierPath.scope.getBinding(identifierPath.node.name)
+	if (
+		binding?.path.isImportSpecifier() ||
+		binding?.path.isImportDefaultSpecifier() ||
+		binding?.path.isImportNamespaceSpecifier()
+	) {
+		usedNames.add(identifierPath.node.name)
+	}
+}
+
+function getLeftMostReferenceIdentifierPath(
+	path: NodePath<any> | null | undefined
+): NodePath<t.Identifier> | null {
+	if (!path) {
+		return null
+	}
+
+	if (path.isIdentifier()) {
+		return path as NodePath<t.Identifier>
+	}
+
+	if (path.isTSQualifiedName()) {
+		return getLeftMostReferenceIdentifierPath(path.get("left"))
+	}
+
+	if (path.isMemberExpression()) {
+		return getLeftMostReferenceIdentifierPath(path.get("object"))
+	}
+
+	return null
 }
 
 function isImportSpecifierUsed(
@@ -439,20 +528,24 @@ function createImportSorter(options: ImportSortOptions) {
 
 		if (options.sortByLength) {
 			const lengthDiff =
-				renderImportEntry(left).length - renderImportEntry(right).length
+				renderImportEntryForSort(left).length -
+				renderImportEntryForSort(right).length
 			if (lengthDiff !== 0) {
 				return lengthDiff
 			}
 		}
 
-		return renderImportEntry(left).localeCompare(renderImportEntry(right))
+		return renderImportEntryForSort(left).localeCompare(
+			renderImportEntryForSort(right)
+		)
 	}
 }
 
 function formatImportEntries(
 	entries: ImportEntry[],
 	options: ImportSortOptions,
-	hasFollowingCode: boolean
+	hasFollowingCode: boolean,
+	renderStyle: ImportRenderStyle
 ): string {
 	if (!entries.length) {
 		return hasFollowingCode ? "" : ""
@@ -480,7 +573,7 @@ function formatImportEntries(
 				lines.push(comment)
 			}
 		}
-		lines.push(renderImportEntry(entry))
+		lines.push(renderImportEntry(entry, renderStyle))
 	}
 
 	let output = lines.join("\n")
@@ -493,9 +586,23 @@ function formatImportEntries(
 	return output
 }
 
-function renderImportEntry(entry: ImportEntry): string {
+function renderImportEntryForSort(entry: ImportEntry): string {
+	return renderImportEntry(entry, {
+		quote: "'",
+		semicolon: true,
+		multilineIndent: "\t",
+	}, false)
+}
+
+function renderImportEntry(
+	entry: ImportEntry,
+	style: ImportRenderStyle,
+	preserveMultiline = true
+): string {
+	const statementEnding = style.semicolon ? ";" : ""
+	const quote = style.quote
 	if (entry.isSideEffect) {
-		return `import '${entry.modulePath}';`
+		return `import ${quote}${entry.modulePath}${quote}${statementEnding}`
 	}
 
 	const defaultSpecifier = entry.specifiers.find((item) => item.kind === "default")
@@ -518,13 +625,20 @@ function renderImportEntry(entry: ImportEntry): string {
 		parts.push(`* as ${namespaceSpecifier.localName}`)
 	}
 	if (namedSpecifiers.length) {
-		parts.push(
-			`{ ${namedSpecifiers.map(formatNamedSpecifier).join(", ")} }`
-		)
+		const formattedNamedSpecifiers = namedSpecifiers.map(formatNamedSpecifier)
+		if (preserveMultiline && shouldRenderMultilineImport(entry, namedSpecifiers)) {
+			parts.push(
+				`{\n${formattedNamedSpecifiers
+					.map((specifier) => `${style.multilineIndent}${specifier},`)
+					.join("\n")}\n}`
+			)
+		} else {
+			parts.push(`{ ${formattedNamedSpecifiers.join(", ")} }`)
+		}
 	}
 
 	const keyword = entry.isTypeOnly ? "import type" : "import"
-	return `${keyword} ${parts.join(", ")} from '${entry.modulePath}';`
+	return `${keyword} ${parts.join(", ")} from ${quote}${entry.modulePath}${quote}${statementEnding}`
 }
 
 function formatNamedSpecifier(specifier: ImportSpecifierInfo): string {
@@ -545,6 +659,44 @@ function formatComment(comment: t.Comment): string {
 		return `/* ${value} */`
 	}
 	return `// ${value}`
+}
+
+function detectImportRenderStyle(entries: ImportEntry[]): ImportRenderStyle {
+	const quote = entries.find((entry) => entry.quote)?.quote || `"`
+	const semicolon = entries.find((entry) => entry.hasSemicolon)?.hasSemicolon || false
+	const multilineIndent =
+		entries.find((entry) => entry.isMultiline && entry.multilineIndent.trim().length > 0)
+			?.multilineIndent || "\t"
+
+	return {
+		quote,
+		semicolon,
+		multilineIndent,
+	}
+}
+
+function detectImportQuote(value: string): "'" | '"' {
+	const fromMatch = value.match(/\bfrom\s+(['"])/)
+	if (fromMatch?.[1] === `'` || fromMatch?.[1] === `"`) {
+		return fromMatch[1]
+	}
+	const sideEffectMatch = value.match(/^import\s+(['"])/)
+	if (sideEffectMatch?.[1] === `'` || sideEffectMatch?.[1] === `"`) {
+		return sideEffectMatch[1]
+	}
+	return `"`
+}
+
+function detectMultilineIndent(value: string): string {
+	const match = value.match(/\r?\n([ \t]+)\S/)
+	return match?.[1] || "\t"
+}
+
+function shouldRenderMultilineImport(
+	entry: ImportEntry,
+	namedSpecifiers: ImportSpecifierInfo[]
+): boolean {
+	return entry.isMultiline || namedSpecifiers.length >= 4
 }
 
 function findLineStart(content: string, offset: number): number {
