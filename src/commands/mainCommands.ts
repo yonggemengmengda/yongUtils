@@ -1,20 +1,26 @@
-import * as vscode from "vscode"
+// Node.js 内置模块
 import * as path from "path"
-import { translateText, translate2EN } from "../utils/translationUtils"
-import {
-	inferTargetLanguage,
-	TranslationCacheStore,
-} from "../utils/translationCache"
-import { getTranslationAiModelSignature } from "../utils/translationAiConfig"
-import {
-	buildEnglishNamingCandidates,
-	normalizeEnglishNamingText,
-} from "../utils/namingUtils"
+
+// 第三方依赖
+import * as vscode from "vscode"
+
+// 父级目录模块
 import {
 	buildI18nClipboardText,
 	buildI18nKey,
 	buildI18nReplacementSnippets,
 } from "../utils/i18nUtils"
+import {
+	buildEnglishNamingCandidates,
+	normalizeEnglishNamingText,
+} from "../utils/namingUtils"
+import { getTranslationAiModelSignature } from "../utils/translationAiConfig"
+import {
+	inferTargetLanguage,
+	TranslationCacheStore,
+} from "../utils/translationCache"
+import { showAiAwareError } from "../utils/aiConfigPrompt"
+import { translate2EN, translateText } from "../utils/translationUtils"
 
 const DEBUG_STYLE =
 	"background: #9C27B0; color: white;font-weight: bold; padding: 2px 4px;"
@@ -104,9 +110,8 @@ export function registerCommands(
 		}
 	}
 
-	const showTranslateError = (error: unknown) => {
-		const message = error instanceof Error ? error.message : String(error || "翻译失败")
-		vscode.window.showErrorMessage(`翻译失败: ${message}`)
+	const showTranslateError = async (error: unknown) => {
+		await showAiAwareError("翻译失败", error)
 	}
 
 	const translate2EnDisposable = vscode.commands.registerCommand(
@@ -148,7 +153,7 @@ export function registerCommands(
 						)
 					})
 				} catch (error) {
-					showTranslateError(error)
+					await showTranslateError(error)
 				}
 			}
 		}
@@ -186,7 +191,7 @@ export function registerCommands(
 						})
 						vscode.window.showInformationMessage(`翻译: ${translatedText}`)
 					} catch (error) {
-						showTranslateError(error)
+						await showTranslateError(error)
 					}
 				}
 			}
@@ -235,7 +240,7 @@ export function registerCommands(
 				}
 				translatedName = translatedName.replace(/\s+/g, "")
 			} catch (error) {
-				showTranslateError(error)
+				await showTranslateError(error)
 				return
 			}
 			const fullPath = path.join(targetDir, `${translatedName}${ext}`)
@@ -348,7 +353,7 @@ export function registerCommands(
 					editBuilder.replace(target.range, selected.label)
 				})
 			} catch (error) {
-				showTranslateError(error)
+				await showTranslateError(error)
 			}
 		}
 	)
@@ -457,7 +462,7 @@ export function registerCommands(
 					`i18n 条目已复制到剪贴板: ${key}`
 				)
 			} catch (error) {
-				showTranslateError(error)
+				await showTranslateError(error)
 			}
 		}
 	)

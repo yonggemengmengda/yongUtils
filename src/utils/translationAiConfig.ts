@@ -51,6 +51,12 @@ export type TranslationAiConfigPayload = TranslationAiRuntimeConfig & {
 	presets: TranslationAiPreset[]
 }
 
+export type TranslationPromptConfigPayload = {
+	systemPrompt: string
+	translatePromptTemplate: string
+	namingPromptTemplate: string
+}
+
 const BUILTIN_PRESETS: TranslationAiPreset[] = [
 	{
 		id: "qwen",
@@ -146,6 +152,14 @@ export function getTranslationAiRuntimeConfig(): TranslationAiRuntimeConfig {
 	}
 }
 
+export function getTranslationPromptConfigPayload(): TranslationPromptConfigPayload {
+	return {
+		systemPrompt: currentConfig.systemPrompt,
+		translatePromptTemplate: currentConfig.translatePromptTemplate,
+		namingPromptTemplate: currentConfig.namingPromptTemplate,
+	}
+}
+
 export function getTranslationAiModelSignature(): string {
 	return `${currentConfig.baseURL || ""}::${currentConfig.model || ""}`
 }
@@ -172,4 +186,16 @@ export async function saveTranslationAiConfig(
 	}
 
 	return getTranslationAiConfigPayload()
+}
+
+export async function saveTranslationPromptConfig(
+	update: TranslationPromptConfigPayload
+): Promise<TranslationPromptConfigPayload> {
+	await saveTranslationAiConfig({
+		systemPrompt: update.systemPrompt,
+		translatePromptTemplate: update.translatePromptTemplate,
+		namingPromptTemplate: update.namingPromptTemplate,
+	})
+
+	return getTranslationPromptConfigPayload()
 }

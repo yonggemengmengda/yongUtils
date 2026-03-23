@@ -2,7 +2,7 @@
 	"name": "yongutils",
 	"displayName": "YongUtils",
 	"description": "面向前端开发者的 VS Code 效率插件，集成 Import 排序、AI 翻译、i18n 提取、类型生成、Vue 3 AST 洞察与常用开发工具",
-	"version": "0.1.2",
+	"version": "0.1.3",
 	"author": "勇哥 <846864051@qq.com>",
 	"publisher": "yonggemengmengda",
 	"license": "MIT",
@@ -39,6 +39,7 @@
 		"onCommand:yongutils.sortImports",
 		"onCommand:yongutils.translateEN",
 		"onCommand:yongutils.translate",
+		"onCommand:yongutils.generateGitCommitMessage",
 		"onCommand:yongutils.parseToTs",
 		"onCommand:yongutils.generateEnglishNames",
 		"onCommand:yongutils.extractI18nEntry",
@@ -67,6 +68,14 @@
 			{
 				"command": "yongutils.translate",
 				"title": "选中英汉互译"
+			},
+			{
+				"command": "yongutils.generateGitCommitMessage",
+				"title": "AI 生成 Git Commit 评论",
+				"icon": {
+					"light": "media/commit-generate-light.svg",
+					"dark": "media/commit-generate-dark.svg"
+				}
 			},
 			{
 				"command": "yongutils.parseToTs",
@@ -174,6 +183,25 @@
 					"group": "navigation",
 					"when": "explorerResourceIsFolder || explorerResourceIsFile"
 				}
+			],
+			"scm/title": [
+				{
+					"command": "yongutils.generateGitCommitMessage",
+					"group": "navigation",
+					"when": "scmProvider == git"
+				}
+			],
+			"scm/resourceGroup/context": [
+				{
+					"command": "yongutils.generateGitCommitMessage",
+					"group": "inline",
+					"when": "scmProvider == git && scmResourceGroup == workingTree"
+				},
+				{
+					"command": "yongutils.generateGitCommitMessage",
+					"group": "inline",
+					"when": "scmProvider == git && scmResourceGroup == index"
+				}
 			]
 		},
 		"configuration": {
@@ -226,15 +254,41 @@
 						"index": "Index 模块"
 					},
 					"description": "自定义分组注释名称"
+				},
+				"yongutils.gitCommitMessage.customPrompt": {
+					"type": "string",
+					"default": "",
+					"description": "AI 生成 Git Commit 评论时追加的自定义提示词，可用于约束语言、格式、前缀和团队规范"
+				},
+				"yongutils.gitCommitMessage.generationSpec": {
+					"type": "string",
+					"default": "严格按团队规范固定输出，格式必须为：<type>: <summary>\n\ntype 仅允许使用：feat、fix、refactor、docs、style、test、chore、build、ci、perf、revert\n\nsummary 使用简洁中文，直接描述核心改动，不超过 50 个汉字\n\n不要添加 scope、不要添加句号、不要换行、不要补充额外说明",
+					"markdownDescription": "Git Commit 评论的主生成规范。默认按团队规范固定输出，你可以直接改成自己的团队格式，例如 `feat(scope): 描述` 或其它固定模板。"
+				},
+				"yongutils.gitCommitMessage.includeEmoji": {
+					"type": "boolean",
+					"default": false,
+					"description": "生成 Git Commit 评论时是否自动带上与提交类型匹配的 Git Commit 表情，如 ✨ feat: 新增功能"
+				},
+				"yongutils.gitCommitMessage.includeDetailSummary": {
+					"type": "boolean",
+					"default": true,
+					"description": "是否在提交标题下方额外生成以 - 开头的细节描述摘要"
+				},
+				"yongutils.gitCommitMessage.detailSummaryPrompt": {
+					"type": "string",
+					"default": "在提交标题后补充 2-4 条细节描述摘要。\n\n每条摘要单独占一行，并且必须以 `- ` 开头。\n\n摘要要聚焦具体改动、涉及模块、行为变化或影响点，避免空泛表述。\n\n不要重复标题，不要写测试流水账，不要输出 Markdown 标题。",
+					"markdownDescription": "Git Commit 细节摘要的提示词。开启 `includeDetailSummary` 后，会在标题下方按这个提示词生成 `- ` 开头的多行摘要。"
 				}
 			}
 		}
 	},
 	"scripts": {
 		"vscode:prepublish": "pnpm run package",
-		"compile": "webpack",
+		"build:view": "pnpm --dir src/view build",
+		"compile": "pnpm run build:view && webpack",
 		"watch": "webpack --watch",
-		"package": "webpack --mode production --devtool hidden-source-map",
+		"package": "pnpm run build:view && webpack --mode production --devtool hidden-source-map",
 		"compile-tests": "tsc -p . --outDir out",
 		"watch-tests": "tsc -p . -w --outDir out",
 		"pretest": "pnpm run compile-tests && pnpm run compile && pnpm run lint",

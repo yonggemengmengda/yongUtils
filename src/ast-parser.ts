@@ -15,6 +15,7 @@ interface AstNode {
 	label: string
 	type: string
 	kind?: string
+	symbols?: string[]
 	location: vscode.Location
 	children?: AstNode[]
 }
@@ -224,6 +225,7 @@ function traverseJs(astNode: any, offset?: PositionOffset): any {
 		kind: astNode.kind,
 		location: createLocation(loc.start, loc.end, offset),
 		label: getBabelNodeName(astNode),
+		symbols: getBabelNodeSymbols(astNode),
 		children: [],
 	}
 
@@ -241,6 +243,7 @@ function traverseJs(astNode: any, offset?: PositionOffset): any {
 				kind: (path.node as any).kind,
 				location: createLocation(loc.start, loc.end, offset),
 				label: getBabelNodeName(path.node),
+				symbols: getBabelNodeSymbols(path.node),
 				children: [],
 			}
 
@@ -779,6 +782,58 @@ const formatPropertyLabel = (
 	const valueText = formatValueSummary(node.value)
 	if (!valueText) return keyText
 	return `${keyText}${separator} ${valueText}`
+}
+
+const collectBindingIdentifiers = (target: any, output: Set<string>) => {
+	if (!target) return
+	switch (target.type) {
+		case "Identifier":
+			if (target.name) output.add(target.name)
+			return
+		case "ObjectPattern":
+			for (const property of target.properties || []) {
+				if (!property) continue
+				if (property.type === "RestElement") {
+					collectBindingIdentifiers(property.argument, output)
+					continue
+				}
+				if (property.type === "ObjectProperty") {
+					collectBindingIdentifiers(property.value || property.key, output)
+				}
+			}
+			return
+		case "ArrayPattern":
+			for (const element of target.elements || []) {
+				collectBindingIdentifiers(element, output)
+			}
+			return
+		case "AssignmentPattern":
+			collectBindingIdentifiers(target.left, output)
+			return
+		case "RestElement":
+			collectBindingIdentifiers(target.argument, output)
+			return
+		case "TSParameterProperty":
+			collectBindingIdentifiers(target.parameter, output)
+			return
+		default:
+			if (target.name) output.add(target.name)
+	}
+}
+
+const getBabelNodeSymbols = (node: any): string[] => {
+	if (!node) return []
+	if (node.type === "VariableDeclaration") {
+		const output = new Set<string>()
+		for (const decl of node.declarations || []) {
+			collectBindingIdentifiers(decl?.id, output)
+		}
+		return Array.from(output)
+	}
+	if (node.type === "FunctionDeclaration" || node.type === "ClassDeclaration") {
+		return node.id?.name ? [node.id.name] : []
+	}
+	return []
 }
 
 // 获取 Babel 节点名称

@@ -10,8 +10,14 @@ import {
 import { imgAutoResize } from "../utils/imageUtils"
 import {
 	getTranslationAiConfigPayload,
+	getTranslationPromptConfigPayload,
+	saveTranslationPromptConfig,
 	saveTranslationAiConfig,
 } from "../utils/translationAiConfig"
+import {
+	getGitCommitMessageConfigPayload,
+	saveGitCommitMessageConfig,
+} from "../utils/gitCommitConfig"
 import { TranslationCacheStore } from "../utils/translationCache"
 import { AstService } from "./webview/astService"
 import { copyToClipboard, toErrorMessage } from "./webview/helpers"
@@ -23,6 +29,7 @@ export class MyViewProvider implements WebviewViewProvider {
 	private webviewView?: WebviewView
 	private astUpdateTimer: NodeJS.Timeout | null = null
 	private astListenersRegistered = false
+	private pendingToolKey: string | null = null
 	private readonly astService = new AstService()
 
 	constructor(
@@ -52,6 +59,7 @@ export class MyViewProvider implements WebviewViewProvider {
 
 		webviewView.onDidChangeVisibility(() => {
 			if (webviewView.visible) {
+				this.flushPendingToolNavigation()
 				this.scheduleAstUpdate()
 			}
 		})
@@ -68,6 +76,8 @@ export class MyViewProvider implements WebviewViewProvider {
 				})
 			)
 		}
+
+		this.flushPendingToolNavigation()
 	}
 
 	private async handleWebviewMessage(webviewView: WebviewView, message: any) {
@@ -132,6 +142,50 @@ export class MyViewProvider implements WebviewViewProvider {
 				})
 			}
 		}
+		if (message.command === "getTranslationPromptConfig") {
+			webviewView.webview.postMessage({
+				command: "getTranslationPromptConfigRes",
+				data: getTranslationPromptConfigPayload(),
+			})
+		}
+		if (message.command === "saveTranslationPromptConfig") {
+			try {
+				const payload = await saveTranslationPromptConfig(message.data || {})
+				webviewView.webview.postMessage({
+					command: "saveTranslationPromptConfigRes",
+					data: payload,
+				})
+			} catch (error) {
+				webviewView.webview.postMessage({
+					command: "translationPromptConfigError",
+					data: {
+						message: toErrorMessage(error),
+					},
+				})
+			}
+		}
+		if (message.command === "getGitCommitConfig") {
+			webviewView.webview.postMessage({
+				command: "getGitCommitConfigRes",
+				data: await getGitCommitMessageConfigPayload(),
+			})
+		}
+		if (message.command === "saveGitCommitConfig") {
+			try {
+				const payload = await saveGitCommitMessageConfig(message.data || {})
+				webviewView.webview.postMessage({
+					command: "saveGitCommitConfigRes",
+					data: payload,
+				})
+			} catch (error) {
+				webviewView.webview.postMessage({
+					command: "gitCommitConfigError",
+					data: {
+						message: toErrorMessage(error),
+					},
+				})
+			}
+		}
 		if (message.command === "removeTranslated") {
 			this.translationCache.removeBySourceText(String(message.data || ""))
 		}
@@ -147,6 +201,12 @@ export class MyViewProvider implements WebviewViewProvider {
 		return buildWebviewHtml(webview, this.context.extensionUri)
 	}
 
+	async revealTool(toolKey: string) {
+		this.pendingToolKey = toolKey
+		await window.showView("yongUtils.webview", true)
+		this.flushPendingToolNavigation()
+	}
+
 	private scheduleAstUpdate() {
 		if (!this.webviewView || !this.webviewView.visible) return
 		if (this.astUpdateTimer) {
@@ -155,6 +215,18 @@ export class MyViewProvider implements WebviewViewProvider {
 		this.astUpdateTimer = setTimeout(() => {
 			this.postCurrentAst()
 		}, 200)
+	}
+
+	private flushPendingToolNavigation() {
+		if (!this.pendingToolKey || !this.webviewView) {
+			return
+		}
+
+		this.webviewView.webview.postMessage({
+			command: "navigateToTool",
+			data: this.pendingToolKey,
+		})
+		this.pendingToolKey = null
 	}
 
 	private postCurrentAst() {

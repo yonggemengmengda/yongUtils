@@ -3,6 +3,7 @@ import {
 	inferTargetLanguage,
 	TranslationCacheStore,
 } from "../utils/translationCache"
+import { promptToConfigureAiIfNeeded } from "../utils/aiConfigPrompt"
 import { getTranslationAiModelSignature } from "../utils/translationAiConfig"
 
 export function register(
@@ -36,17 +37,24 @@ export function register(
 				if (!isTurnOn) return null
 				if (!/[\u4E00-\u9FA5]+|[A-Za-z]+/.test(word)) return null
 
-				return translateText(word).then((translation) => {
-					hoverContent.appendMarkdown(translation)
-					translationCache.set({
-						sourceText: word,
-						translatedText: translation,
-						scene: "general",
-						targetLanguage,
-						modelSignature,
+				return translateText(word)
+					.then((translation) => {
+						hoverContent.appendMarkdown(translation)
+						translationCache.set({
+							sourceText: word,
+							translatedText: translation,
+							scene: "general",
+							targetLanguage,
+							modelSignature,
+						})
+						return new vscode.Hover(hoverContent)
 					})
-					return new vscode.Hover(hoverContent)
-				})
+					.catch(async (error) => {
+						await promptToConfigureAiIfNeeded(error, {
+							quiet: true,
+						})
+						return null
+					})
 			},
 		}
 	)

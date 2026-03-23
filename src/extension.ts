@@ -2,9 +2,11 @@ import "./utils/bufferShim"
 import {
 	window,
 	ExtensionContext,
+	commands,
 } from "vscode"
 import { MyViewProvider } from "./view/webviewProvider"
 import { registerCommands } from "./commands/mainCommands"
+import { registerGitCommitCommands } from "./commands/gitCommitCommands"
 import { register as registerSortImportRegister } from "./command/sortImport"
 import { register as parse2TsRegister } from "./command/parse2Ts"
 import { register as hoverProviderRegister } from "./command/hoverProvider"
@@ -23,13 +25,18 @@ export async function activate(context: ExtensionContext) {
 	await initTranslationAiConfig(context)
 	const translationCache = await createTranslationCacheStore(context)
 	translationCacheRef = translationCache
+	const viewProvider = new MyViewProvider(context, translationCache)
 	
 	registerCommands(context, translationCache)
+	registerGitCommitCommands(context)
 
 	context.subscriptions.push(
+		commands.registerCommand("yongutils.openAiConfigPanel", async () => {
+			await viewProvider.revealTool("AiConfig")
+		}),
 		window.registerWebviewViewProvider(
 			"yongUtils.webview",
-			new MyViewProvider(context, translationCache)
+			viewProvider
 		)
 	)
 	

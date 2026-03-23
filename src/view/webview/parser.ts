@@ -188,7 +188,9 @@ export class AstParser {
 			kind,
 			value,
 			attrs,
-			symbols: this.extractNodeSymbols(rawLabel, name),
+			symbols: Array.isArray(node.symbols)
+				? node.symbols
+				: this.extractNodeSymbols(rawLabel, name),
 			location: node.location ? this.toWebLocation(node.location) : undefined,
 			children,
 		}

@@ -31,10 +31,50 @@ const translationCache = createTranslationCacheStore(context)
 		)
 		assert.doesNotMatch(output, /\bUnusedThing\b/)
 	})
+
+	test("does not duplicate generated group comments on repeated sorts", async () => {
+		const source = `import localThing from "./localThing"
+import react from "react"
+import fs from "node:fs"
+`
+
+		const firstPass = await sortImports(source, createTestOptions({
+			addGroupComments: true,
+			removeUnusedImports: false,
+		}))
+		const secondPass = await sortImports(firstPass, createTestOptions({
+			addGroupComments: true,
+			removeUnusedImports: false,
+		}))
+
+		assert.strictEqual(secondPass, firstPass)
+		assert.strictEqual((secondPass.match(/\/\/ /g) || []).length, 3)
+	})
+
+	test("does not stack group comment above first import", async () => {
+		const source = `// Node.js 内置模块
+import fs from "node:fs"
+import react from "react"
+`
+
+		const firstPass = await sortImports(source, createTestOptions({
+			addGroupComments: true,
+			removeUnusedImports: false,
+		}))
+		const secondPass = await sortImports(firstPass, createTestOptions({
+			addGroupComments: true,
+			removeUnusedImports: false,
+		}))
+
+		assert.strictEqual(secondPass, firstPass)
+		assert.strictEqual((secondPass.match(/\/\/ Node\.js 内置模块/g) || []).length, 1)
+	})
 })
 
-function createTestOptions(): ImportSortOptions {
-	return {
+function createTestOptions(
+	overrides: Partial<ImportSortOptions> = {}
+): ImportSortOptions {
+	const baseOptions: ImportSortOptions = {
 		addGroupComments: false,
 		sortByLength: false,
 		sortOnSave: false,
@@ -51,6 +91,26 @@ function createTestOptions(): ImportSortOptions {
 		},
 		internalLibPrefixes: ["@/"],
 	}
+
+	return {
+		...baseOptions,
+		...overrides,
+		groupNames: overrides.groupNames || baseOptions.groupNames,
+		internalLibPrefixes:
+			overrides.internalLibPrefixes || baseOptions.internalLibPrefixes,
+	}
+}
+
+async function sortImports(
+	source: string,
+	options: ImportSortOptions
+): Promise<string> {
+	const document = await vscode.workspace.openTextDocument({
+		language: "typescript",
+		content: source,
+	})
+	const edits = await computeSortImportEdits(document, options)
+	return applyTextEdits(document, edits)
 }
 
 function applyTextEdits(

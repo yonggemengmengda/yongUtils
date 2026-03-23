@@ -16,6 +16,33 @@ import type {
 	WebLocation,
 } from "./types"
 
+const TEMPLATE_EXPRESSION_KEYWORDS = new Set([
+	"function",
+	"return",
+	"typeof",
+	"instanceof",
+	"new",
+	"in",
+	"of",
+	"await",
+	"async",
+	"let",
+	"const",
+	"var",
+	"if",
+	"else",
+	"for",
+	"while",
+	"do",
+	"switch",
+	"case",
+	"default",
+	"try",
+	"catch",
+	"finally",
+	"throw",
+])
+
 const BUILTIN_MODULES = new Set(
 	builtinModules.flatMap((name) =>
 		name.startsWith("node:") ? [name, name.slice(5)] : [name, `node:${name}`]
@@ -1904,6 +1931,7 @@ export class AstSummaryBuilder {
 	private extractExpressionSymbols(expression: string): string[] {
 		const normalized = expression.trim()
 		if (!normalized) return []
+		const inlineParams = this.extractInlineFunctionParams(normalized)
 		const results: string[] = []
 		const regex = /[$A-Z_a-z][\w$]*/g
 		let match: RegExpExecArray | null = null
@@ -1929,9 +1957,40 @@ export class AstSummaryBuilder {
 				continue
 			}
 			if (TEMPLATE_IDENTIFIER_BLACKLIST.has(name)) continue
+			if (TEMPLATE_EXPRESSION_KEYWORDS.has(name)) continue
+			if (inlineParams.has(name)) continue
 			if (!results.includes(name)) results.push(name)
 		}
 		return results
+	}
+
+	private extractInlineFunctionParams(expression: string): Set<string> {
+		const params = new Set<string>()
+		const addParams = (raw: string) => {
+			for (const name of this.extractPatternSymbols(raw)) {
+				params.add(name)
+			}
+		}
+		const arrowParenRegex = /\(([^)]*)\)\s*=>/g
+		let match: RegExpExecArray | null = null
+		while ((match = arrowParenRegex.exec(expression)) !== null) {
+			if (this.isInsideStringLiteral(expression, match.index)) continue
+			addParams(match[1] || "")
+		}
+
+		const arrowSingleRegex = /\b([$A-Z_a-z][\w$]*)\s*=>/g
+		while ((match = arrowSingleRegex.exec(expression)) !== null) {
+			if (this.isInsideStringLiteral(expression, match.index)) continue
+			addParams(match[1] || "")
+		}
+
+		const functionRegex = /\bfunction\s*(?:\*?\s*)?\(([^)]*)\)/g
+		while ((match = functionRegex.exec(expression)) !== null) {
+			if (this.isInsideStringLiteral(expression, match.index)) continue
+			addParams(match[1] || "")
+		}
+
+		return params
 	}
 
 	private isInsideStringLiteral(value: string, index: number): boolean {

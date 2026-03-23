@@ -2,6 +2,10 @@
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import Navbar from './Navbar.vue'
 
+const props = defineProps<{
+  activeTool: string
+}>()
+
 const emit = defineEmits(['tool-change'])
 
 // 主题状态管理
@@ -59,7 +63,7 @@ const handleToolChange = (tool: string) => {
 <template>
   <div class="app-shell" :class="isDarkMode ? 'dark' : 'light'">
     <div class="app-nav">
-      <Navbar @tool-change="handleToolChange" />
+      <Navbar :active-tool="props.activeTool" @tool-change="handleToolChange" />
     </div>
     <main class="app-content">
       <slot />

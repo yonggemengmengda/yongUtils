@@ -19,18 +19,28 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
-import { 
+import {
+  AiStatus,
   DataBaseAlt,
   Locked,
   Code,
+  Commit,
   StringText,
   Image,
   ChartTreemap,
   Translate
 } from '@vicons/carbon';
 
+defineProps<{
+  activeTool: string
+}>()
+
 const toolList = [
+  {
+    name: 'AI基础配置',
+    icon: AiStatus,
+    key: 'AiConfig'
+  },
   {
     name: 'AST解析',
     icon: ChartTreemap,
@@ -65,14 +75,16 @@ const toolList = [
     name: '翻译管理',
     icon: Translate,
     key: 'Translate'
+  },
+  {
+    name: 'Git Commit配置',
+    icon: Commit,
+    key: 'GitCommitConfig'
   }
 ]
-
-const activeTool = ref('AstPreview');
 const emit = defineEmits(['tool-change']);
 
 const changeTool = (tool: any) => {
-  activeTool.value = tool.key;
   emit('tool-change', tool.key);
 }
 </script>
