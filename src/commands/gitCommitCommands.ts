@@ -29,6 +29,77 @@ type SourceControlGroupLike = Partial<vscode.SourceControlResourceGroup> & {
 	}
 }
 
+const TYPEWRITER_FRAME_INTERVAL_MS = 32
+const TYPEWRITER_MAX_FRAMES = 36
+const GIT_COMMIT_GENERATING_CONTEXT = "yongutils.gitCommitMessageGenerating"
+const activeTypewriterSessions = new WeakMap<GitInputBox, number>()
+let isGeneratingGitCommitMessage = false
+
+function startTypewriterSession(inputBox: GitInputBox): number {
+	const nextSessionId = (activeTypewriterSessions.get(inputBox) || 0) + 1
+	activeTypewriterSessions.set(inputBox, nextSessionId)
+	return nextSessionId
+}
+
+function isTypewriterSessionActive(
+	inputBox: GitInputBox,
+	sessionId: number
+): boolean {
+	return activeTypewriterSessions.get(inputBox) === sessionId
+}
+
+function getTypewriterChunkSize(content: string): number {
+	const charCount = Array.from(content).length
+	if (charCount <= TYPEWRITER_MAX_FRAMES) {
+		return 1
+	}
+	return Math.max(1, Math.ceil(charCount / TYPEWRITER_MAX_FRAMES))
+}
+
+function wait(ms: number) {
+	return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function setGitCommitGeneratingContext(isGenerating: boolean) {
+	await vscode.commands.executeCommand(
+		"setContext",
+		GIT_COMMIT_GENERATING_CONTEXT,
+		isGenerating
+	)
+}
+
+async function applyTypewriterCommitMessage(
+	inputBox: GitInputBox,
+	message: string
+) {
+	const chars = Array.from(message)
+	const chunkSize = getTypewriterChunkSize(message)
+	const sessionId = startTypewriterSession(inputBox)
+
+	inputBox.value = ""
+	let rendered = ""
+
+	for (let index = 0; index < chars.length; index += chunkSize) {
+		if (!isTypewriterSessionActive(inputBox, sessionId)) {
+			return
+		}
+		// 用户中途手动改了输入框时，停止动画，避免覆盖用户输入。
+		if (inputBox.value !== rendered) {
+			return
+		}
+
+		rendered = chars
+			.slice(0, Math.min(index + chunkSize, chars.length))
+			.join("")
+		inputBox.value = rendered
+
+		if (rendered === message) {
+			return
+		}
+		await wait(TYPEWRITER_FRAME_INTERVAL_MS)
+	}
+}
+
 function isPathWithinRepo(repoPath: string, targetPath: string): boolean {
 	const relativePath = path.relative(repoPath, targetPath)
 	return (
@@ -111,37 +182,62 @@ async function pickRepository(
 }
 
 export function registerGitCommitCommands(context: vscode.ExtensionContext) {
+	void setGitCommitGeneratingContext(false)
+
 	const generateGitCommitMessageDisposable = vscode.commands.registerCommand(
 		"yongutils.generateGitCommitMessage",
 		async (arg?: SourceControlGroupLike) => {
-			const gitApi = await getGitApi()
-			if (!gitApi?.repositories?.length) {
-				vscode.window.showWarningMessage(
-					"当前没有可用的 Git 仓库，或 VS Code 内置 Git 扩展不可用"
-				)
+			if (isGeneratingGitCommitMessage) {
 				return
 			}
 
-			const contextUri =
-				getGroupContextUri(arg) ||
-				vscode.window.activeTextEditor?.document.uri ||
-				vscode.workspace.workspaceFolders?.[0]?.uri
-			const repository = await pickRepository(gitApi.repositories, contextUri)
-			if (!repository) {
-				return
-			}
+			isGeneratingGitCommitMessage = true
+			await setGitCommitGeneratingContext(true)
 
 			try {
-				const message = await generateGitCommitMessage(
-					repository.rootUri.fsPath,
-					resolveGitCommitScopeFromGroupId(arg?.id)
+				const gitApi = await getGitApi()
+				if (!gitApi?.repositories?.length) {
+					vscode.window.showWarningMessage(
+						"当前没有可用的 Git 仓库，或 VS Code 内置 Git 扩展不可用"
+					)
+					return
+				}
+
+				const contextUri =
+					getGroupContextUri(arg) ||
+					vscode.window.activeTextEditor?.document.uri ||
+					vscode.workspace.workspaceFolders?.[0]?.uri
+				const repository = await pickRepository(
+					gitApi.repositories,
+					contextUri
 				)
-				repository.inputBox.value = message
-			} catch (error) {
-				await showAiAwareError("生成 Git Commit 评论失败", error)
+				if (!repository) {
+					return
+				}
+
+				try {
+					const message = await generateGitCommitMessage(
+						repository.rootUri.fsPath,
+						resolveGitCommitScopeFromGroupId(arg?.id)
+					)
+					await applyTypewriterCommitMessage(repository.inputBox, message)
+				} catch (error) {
+					await showAiAwareError("生成 Git Commit 评论失败", error)
+				}
+			} finally {
+				isGeneratingGitCommitMessage = false
+				await setGitCommitGeneratingContext(false)
 			}
 		}
 	)
 
-	context.subscriptions.push(generateGitCommitMessageDisposable)
+	const generateGitCommitMessageLoadingDisposable = vscode.commands.registerCommand(
+		"yongutils.generateGitCommitMessageLoading",
+		() => undefined
+	)
+
+	context.subscriptions.push(
+		generateGitCommitMessageDisposable,
+		generateGitCommitMessageLoadingDisposable
+	)
 }

@@ -78,6 +78,14 @@
 				}
 			},
 			{
+				"command": "yongutils.generateGitCommitMessageLoading",
+				"title": "AI 正在生成 Commit 评论…",
+				"icon": {
+					"light": "media/commit-generate-loading-light.svg",
+					"dark": "media/commit-generate-loading-dark.svg"
+				}
+			},
+			{
 				"command": "yongutils.parseToTs",
 				"title": "解析为ts类型"
 			},
@@ -188,19 +196,34 @@
 				{
 					"command": "yongutils.generateGitCommitMessage",
 					"group": "navigation",
-					"when": "scmProvider == git"
+					"when": "scmProvider == git && !yongutils.gitCommitMessageGenerating"
+				},
+				{
+					"command": "yongutils.generateGitCommitMessageLoading",
+					"group": "navigation",
+					"when": "scmProvider == git && yongutils.gitCommitMessageGenerating"
 				}
 			],
 			"scm/resourceGroup/context": [
 				{
 					"command": "yongutils.generateGitCommitMessage",
 					"group": "inline",
-					"when": "scmProvider == git && scmResourceGroup == workingTree"
+					"when": "scmProvider == git && scmResourceGroup == workingTree && !yongutils.gitCommitMessageGenerating"
 				},
 				{
 					"command": "yongutils.generateGitCommitMessage",
 					"group": "inline",
-					"when": "scmProvider == git && scmResourceGroup == index"
+					"when": "scmProvider == git && scmResourceGroup == index && !yongutils.gitCommitMessageGenerating"
+				},
+				{
+					"command": "yongutils.generateGitCommitMessageLoading",
+					"group": "inline",
+					"when": "scmProvider == git && scmResourceGroup == workingTree && yongutils.gitCommitMessageGenerating"
+				},
+				{
+					"command": "yongutils.generateGitCommitMessageLoading",
+					"group": "inline",
+					"when": "scmProvider == git && scmResourceGroup == index && yongutils.gitCommitMessageGenerating"
 				}
 			]
 		},

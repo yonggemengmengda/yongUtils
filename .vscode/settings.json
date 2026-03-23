@@ -11,5 +11,9 @@
 	// Turn off tsc task auto detection since we have the necessary tasks as npm scripts
 	"typescript.tsc.autoDetect": "off",
 	"Codegeex.RepoIndex": true,
-	"chatgpt.openOnStartup": true
+	"chatgpt.openOnStartup": true,
+	"yongutils.gitCommitMessage.generationSpec": "严格按团队规范固定输出，格式必须为：<type>: <summary>\ntype 仅允许使用：feat、fix、refactor、docs、style、test、chore、build、ci、perf、revert\nsummary 使用简洁中文，直接描述核心改动，不超过 50 个汉字\n不要添加 scope、不要添加句号、不要换行、不要补充额外说明",
+	"yongutils.gitCommitMessage.includeEmoji": true,
+	"yongutils.gitCommitMessage.includeDetailSummary": true,
+	"yongutils.gitCommitMessage.detailSummaryPrompt": "在提交标题后补充 2-4 条细节描述摘要。\n\n每条摘要单独占一行，并且必须以 `- ` 开头。\n\n摘要要聚焦具体改动、涉及模块、行为变化或影响点，避免空泛表述。\n\n不要重复标题，不要写测试流水账，不要输出 Markdown 标题。"
 }

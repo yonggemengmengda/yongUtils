@@ -1135,7 +1135,7 @@ export class AstSummaryBuilder {
 			) {
 				return
 			}
-			const typeName = String(node.label || "").trim()
+			const typeName = this.extractTypeDefinitionName(node)
 			if (!typeName || definitions.has(typeName)) return
 			definitions.set(typeName, node)
 		})
@@ -1246,7 +1246,7 @@ export class AstSummaryBuilder {
 			) {
 				continue
 			}
-			const propName = this.extractPropertyLikeName(child.label)
+			const propName = this.extractPropertyNodeName(child)
 			const definition = this.createVuePropDefinition(propName, child.location)
 			if (definition) {
 				definitions.push(definition)
@@ -1377,6 +1377,33 @@ export class AstSummaryBuilder {
 			category: "state",
 			location,
 		}
+	}
+
+	private extractNodePrimarySymbol(node: WebAstNode): string {
+		const symbols = Array.isArray(node.symbols) ? node.symbols : []
+		for (const rawSymbol of symbols) {
+			const symbol = String(rawSymbol || "").trim()
+			if (this.isIdentifierLike(symbol)) {
+				return symbol
+			}
+		}
+		return ""
+	}
+
+	private extractTypeDefinitionName(node: WebAstNode): string {
+		const symbol = this.extractNodePrimarySymbol(node)
+		if (symbol) return symbol
+		const normalized = String(node.label || "")
+			.replace(/^(?:interface|type|enum|namespace)\s+/, "")
+			.trim()
+		return this.isIdentifierLike(normalized) ? normalized : ""
+	}
+
+	private extractPropertyNodeName(node: WebAstNode): string {
+		const symbol = this.extractNodePrimarySymbol(node)
+		if (symbol) return symbol
+		const normalized = this.extractPropertyLikeName(node.label)
+		return this.isIdentifierLike(normalized) ? normalized : ""
 	}
 
 	private deduplicateScriptDefinitions(
