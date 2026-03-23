@@ -92,7 +92,7 @@
         </button>
       </div>
       <div class="ui-help">
-        开启后会按提交类型自动带上 Emoji，例如 <code>✨ feat: 新增能力</code>、<code>🐛 fix: 修复问题</code>。
+        开启后会按标题内容自动补充更合适的 Emoji，例如 <code>⬆️ chore: 升级依赖</code>、<code>📝 docs: 更新文档</code>。
       </div>
     </div>
 
@@ -209,7 +209,7 @@ const configStatusType = ref<"error" | "info" | "">("")
 
 const previewExample = computed(() => {
   const title = config.value.includeEmoji
-    ? "✨ feat: 新增 Git Commit 配置页"
+    ? "⚙️ feat: 新增 Git Commit 配置页"
     : "feat: 新增 Git Commit 配置页"
 
   if (!config.value.includeDetailSummary) {

@@ -24,9 +24,9 @@ const DEFAULT_COMMIT_SYSTEM_PROMPT = [
 ].join("\n")
 
 const COMMIT_EMOJI_SPEC = [
-	"需要在最终结果前增加 1 个与提交类型匹配的 Git Commit Emoji，格式固定为：<emoji> <type>: <summary>",
-	"推荐映射：feat => ✨，fix => 🐛，refactor => ♻️，docs => 📝，style => 💄，test => ✅，chore => 🔧，build => 📦️，ci => 👷，perf => ⚡️，revert => ⏪️",
-	"只能保留 1 个 emoji，emoji 后保留 1 个空格",
+	"不要在结果中直接输出 emoji 或 gitmoji。",
+	"系统会在生成完成后，根据提交标题内容和提交类型自动补充最合适的 1 个 Git Commit Emoji。",
+	"你只需要输出纯文本 commit 标题和细节摘要。",
 ].join("\n")
 
 const DEFAULT_COMMIT_PROMPT_TEMPLATE = [
@@ -78,12 +78,311 @@ type GitStatusEntry = {
 	workingTreeCode: string
 }
 
+type ParsedCommitTitle = {
+	raw: string
+	type: string
+	scope: string
+	breaking: string
+	summary: string
+}
+
+type CommitEmojiRule = {
+	emoji: string
+	type: string
+	keywords: string[]
+}
+
+type CommitSemanticSelection = {
+	emoji: string
+	type: string
+}
+
+const COMMIT_EMOJI_BY_TYPE: Record<string, string> = {
+	feat: "✨",
+	fix: "🐛",
+	refactor: "♻️",
+	docs: "📝",
+	style: "💄",
+	test: "✅",
+	chore: "🔧",
+	build: "📦️",
+	ci: "👷",
+	perf: "⚡️",
+	revert: "⏪️",
+}
+
+const COMMIT_EMOJI_RULES: CommitEmojiRule[] = [
+	{
+		emoji: "⏪️",
+		type: "revert",
+		keywords: ["revert", "rollback", "回滚", "撤销"],
+	},
+	{
+		emoji: "🔥",
+		type: "refactor",
+		keywords: ["remove", "delete", "drop", "移除", "删除", "清理废弃", "清除废弃"],
+	},
+	{
+		emoji: "🚚",
+		type: "refactor",
+		keywords: ["rename", "move", "relocate", "重命名", "迁移", "移动"],
+	},
+	{
+		emoji: "⬆️",
+		type: "build",
+		keywords: [
+			"upgrade",
+			"bump",
+			"dependency",
+			"dependencies",
+			"deps",
+			"pnpm",
+			"npm",
+			"yarn",
+			"package-lock",
+			"pnpm-lock",
+			"依赖升级",
+			"依赖更新",
+			"更新依赖",
+			"升级依赖",
+		],
+	},
+	{
+		emoji: "🚀",
+		type: "build",
+		keywords: ["release", "version", "tag", "发版", "发布", "版本"],
+	},
+	{
+		emoji: "📝",
+		type: "docs",
+		keywords: ["readme", "docs", "doc", "comment", "文档", "注释"],
+	},
+	{
+		emoji: "✅",
+		type: "test",
+		keywords: ["test", "tests", "spec", "assert", "snapshot", "测试", "用例"],
+	},
+	{
+		emoji: "⚡️",
+		type: "perf",
+		keywords: [
+			"perf",
+			"performance",
+			"optimize",
+			"optimization",
+			"cache",
+			"memo",
+			"性能",
+			"优化",
+			"提速",
+			"缓存",
+		],
+	},
+	{
+		emoji: "👷",
+		type: "ci",
+		keywords: ["ci", "workflow", "pipeline", "github action", "持续集成", "工作流"],
+	},
+	{
+		emoji: "📦️",
+		type: "build",
+		keywords: ["build", "bundle", "pack", "package", "webpack", "vite", "rollup", "esbuild", "构建", "打包"],
+	},
+	{
+		emoji: "🔒️",
+		type: "fix",
+		keywords: ["security", "auth", "permission", "token", "password", "secret", "安全", "权限", "鉴权"],
+	},
+	{
+		emoji: "🌐",
+		type: "feat",
+		keywords: ["i18n", "locale", "localization", "translation", "translate", "国际化", "本地化", "多语言", "翻译"],
+	},
+	{
+		emoji: "💄",
+		type: "style",
+		keywords: ["ui", "ux", "css", "style", "theme", "icon", "icons", "color", "layout", "样式", "主题", "图标", "界面", "配色"],
+	},
+	{
+		emoji: "🏷️",
+		type: "refactor",
+		keywords: ["typescript", "typing", "interface", "types", "类型", "类型声明", "声明文件"],
+	},
+	{
+		emoji: "⚙️",
+		type: "chore",
+		keywords: ["config", "setting", "settings", "env", "eslint", "prettier", "tsconfig", "配置", "参数"],
+	},
+	{
+		emoji: "🐛",
+		type: "fix",
+		keywords: ["fix", "bug", "error", "issue", "crash", "异常", "报错", "修复", "问题", "兼容"],
+	},
+	{
+		emoji: "♻️",
+		type: "refactor",
+		keywords: ["refactor", "restructure", "cleanup", "重构", "整理"],
+	},
+	{
+		emoji: "✨",
+		type: "feat",
+		keywords: ["add", "support", "introduce", "implement", "新增", "支持", "实现", "接入"],
+	},
+]
+
+const LEADING_COMMIT_EMOJI_REGEX =
+	/^(\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?)*)\s+/u
+
 function getEmojiRule(includeEmoji: boolean): string {
 	if (!includeEmoji) {
 		return "不要添加任何 emoji 或 gitmoji，严格输出纯文本 commit 评论。"
 	}
 
 	return COMMIT_EMOJI_SPEC
+}
+
+function stripMarkdownCodeFence(content: string): string {
+	const normalized = String(content || "").trim()
+	if (!normalized.startsWith("```")) {
+		return normalized
+	}
+
+	return normalized
+		.replace(/^```[^\n]*\n?/, "")
+		.replace(/\n```$/, "")
+		.trim()
+}
+
+export function stripLeadingCommitEmoji(title: string): string {
+	return String(title || "").trim().replace(LEADING_COMMIT_EMOJI_REGEX, "")
+}
+
+function parseCommitTitle(title: string): ParsedCommitTitle {
+	const raw = stripLeadingCommitEmoji(title)
+	const match = raw.match(/^([a-z]+)(\([^)]*\))?(!)?:\s*(.+)$/i)
+	if (!match) {
+		return {
+			raw,
+			type: "",
+			scope: "",
+			breaking: "",
+			summary: raw,
+		}
+	}
+
+	return {
+		raw,
+		type: String(match[1] || "").toLowerCase(),
+		scope: String(match[2] || ""),
+		breaking: String(match[3] || ""),
+		summary: String(match[4] || "").trim(),
+	}
+}
+
+function selectCommitSemantic(title: string): CommitSemanticSelection {
+	const parsed = parseCommitTitle(title)
+	const normalizedText = `${parsed.summary}\n${parsed.raw}`.toLowerCase()
+
+	for (const rule of COMMIT_EMOJI_RULES) {
+		if (
+			rule.keywords.some((keyword) =>
+				normalizedText.includes(String(keyword || "").toLowerCase())
+			)
+		) {
+			return {
+				emoji: rule.emoji,
+				type: rule.type,
+			}
+		}
+	}
+
+	const fallbackType = parsed.type || "chore"
+	return {
+		emoji: COMMIT_EMOJI_BY_TYPE[fallbackType] || "🔧",
+		type: fallbackType,
+	}
+}
+
+export function selectCommitEmoji(title: string): string {
+	return selectCommitSemantic(title).emoji
+}
+
+export function selectCommitType(title: string): string {
+	return selectCommitSemantic(title).type
+}
+
+function rewriteCommitTitleType(title: string): string {
+	const parsed = parseCommitTitle(title)
+	if (!parsed.type) {
+		return stripLeadingCommitEmoji(title).trim()
+	}
+
+	const nextType = selectCommitType(title)
+	if (!nextType) {
+		return stripLeadingCommitEmoji(title).trim()
+	}
+
+	return `${nextType}: ${parsed.summary}`.trim()
+}
+
+function requiresCommitScope(generationSpec?: string): boolean {
+	const normalized = String(generationSpec || "").toLowerCase()
+	if (!normalized) {
+		return false
+	}
+	if (/不要添加\s*scope|禁止\s*scope/.test(normalized)) {
+		return false
+	}
+	if (/scope\s*(?:为必填|必填)/.test(normalized)) {
+		return true
+	}
+	return /格式必须为：<type>\(<scope>\): <summary>/.test(normalized)
+}
+
+function rewriteCommitTitleBySpec(
+	title: string,
+	generationSpec?: string
+): string {
+	const parsed = parseCommitTitle(title)
+	const rewritten = rewriteCommitTitleType(title)
+	if (!parsed.type) {
+		return rewritten
+	}
+	if (!requiresCommitScope(generationSpec)) {
+		return rewritten
+	}
+
+	const nextType = selectCommitType(title)
+	if (!nextType) {
+		return rewritten
+	}
+
+	return `${nextType}${parsed.scope}${parsed.breaking}: ${parsed.summary}`.trim()
+}
+
+export function normalizeGeneratedGitCommitMessage(
+	content: string,
+	includeEmoji: boolean,
+	generationSpec?: string
+): string {
+	const normalized = stripMarkdownCodeFence(content).replace(/\r/g, "").trim()
+	if (!normalized) {
+		return ""
+	}
+
+	const [firstLineRaw, ...restLines] = normalized.split("\n")
+	const firstLine = stripLeadingCommitEmoji(firstLineRaw)
+	if (!firstLine) {
+		return normalized
+	}
+
+	const rewrittenTitle = rewriteCommitTitleBySpec(firstLine, generationSpec)
+
+	const title = includeEmoji
+		? `${selectCommitEmoji(rewrittenTitle)} ${rewrittenTitle}`
+		: rewrittenTitle
+
+	return [title, ...restLines].join("\n").trim()
 }
 
 function getDetailSummaryRule(includeDetailSummary: boolean): string {
@@ -463,8 +762,14 @@ export async function generateGitCommitMessage(
 		diffText: diffText || "无可用 Diff 内容，请根据状态列表和文件预览生成。",
 	})
 
-	return requestAiText({
+	const generated = await requestAiText({
 		systemPrompt: DEFAULT_COMMIT_SYSTEM_PROMPT,
 		userPrompt: prompt,
 	})
+
+	return normalizeGeneratedGitCommitMessage(
+		generated,
+		settings.includeEmoji,
+		settings.generationSpec
+	)
 }

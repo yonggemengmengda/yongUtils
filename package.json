@@ -291,7 +291,7 @@
 				"yongutils.gitCommitMessage.includeEmoji": {
 					"type": "boolean",
 					"default": false,
-					"description": "生成 Git Commit 评论时是否自动带上与提交类型匹配的 Git Commit 表情，如 ✨ feat: 新增功能"
+					"description": "生成 Git Commit 评论时是否按标题内容自动补充更合适的 Git Commit Emoji，如 ⬆️ chore: 升级依赖、📝 docs: 更新文档"
 				},
 				"yongutils.gitCommitMessage.includeDetailSummary": {
 					"type": "boolean",
