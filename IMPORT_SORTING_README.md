@@ -16,7 +16,7 @@ Import 语句会按照以下优先级自动分组：
 7. **index 导入**
 
 ### 自动整理
-- 每个组内的 import 语句按字母顺序排序
+- 每个组内分为 type 导入、普通导入、解构导入三段，并在各段内按长度由短到长排序
 - 支持 `import type`、多行 import 和副作用 import
 - 可选移除未使用 import
 - 支持 Vue SFC、JSX、TSX
@@ -45,7 +45,7 @@ Import 语句会按照以下优先级自动分组：
 ```json
 {
   "yongutils.importSorter.addGroupComments": true,
-  "yongutils.importSorter.sortByLength": false,
+  "yongutils.importSorter.sortByLength": true,
   "yongutils.importSorter.sortOnSave": true,
   "yongutils.importSorter.removeUnusedImports": true,
   "yongutils.importSorter.placeSideEffectImportsFirst": true,

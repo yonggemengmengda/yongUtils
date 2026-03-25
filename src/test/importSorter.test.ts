@@ -32,6 +32,20 @@ const translationCache = createTranslationCacheStore(context)
 		assert.doesNotMatch(output, /\bUnusedThing\b/)
 	})
 
+	test("keeps unused type imports when removing unused imports", async () => {
+		const source = `import type Foo from "./foo"
+import { type Bar, usedValue, unusedValue } from "./bar"
+
+const value = usedValue
+`
+
+		const output = await sortImports(source, createTestOptions())
+
+		assert.match(output, /import type Foo from "\.\/foo"/)
+		assert.match(output, /import \{ type Bar, usedValue \} from "\.\/bar"/)
+		assert.doesNotMatch(output, /\bunusedValue\b/)
+	})
+
 	test("does not duplicate generated group comments on repeated sorts", async () => {
 		const source = `import localThing from "./localThing"
 import react from "react"
@@ -69,6 +83,34 @@ import react from "react"
 		assert.strictEqual(secondPass, firstPass)
 		assert.strictEqual((secondPass.match(/\/\/ Node\.js 内置模块/g) || []).length, 1)
 	})
+
+	test("splits each group into type, plain, and named imports, then sorts each part by length", async () => {
+		const source = `import { gamma } from "./gamma"
+import mediumItem from "./mediumItem"
+import type { LongType } from "./longType"
+import a from "./a"
+import type T from "./t"
+import shortItem from "./shortItem"
+import { beta } from "./beta"
+`
+
+		const output = await sortImports(source, createTestOptions({
+			removeUnusedImports: false,
+			sortByLength: true,
+		}))
+
+		assert.strictEqual(
+			output,
+			`import type T from "./t"
+import type { LongType } from "./longType"
+import a from "./a"
+import shortItem from "./shortItem"
+import mediumItem from "./mediumItem"
+import { beta } from "./beta"
+import { gamma } from "./gamma"
+`
+		)
+	})
 })
 
 function createTestOptions(
@@ -76,7 +118,7 @@ function createTestOptions(
 ): ImportSortOptions {
 	const baseOptions: ImportSortOptions = {
 		addGroupComments: false,
-		sortByLength: false,
+		sortByLength: true,
 		sortOnSave: false,
 		removeUnusedImports: true,
 		placeSideEffectImportsFirst: true,

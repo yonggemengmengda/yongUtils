@@ -31,7 +31,7 @@ export async function resolveImportSortOptions(
 
 	return {
 		addGroupComments: readConfig<boolean>("addGroupComments", true),
-		sortByLength: readConfig<boolean>("sortByLength", false),
+		sortByLength: readConfig<boolean>("sortByLength", true),
 		sortOnSave: readConfig<boolean>("sortOnSave", false),
 		removeUnusedImports: readConfig<boolean>("removeUnusedImports", true),
 		placeSideEffectImportsFirst: readConfig<boolean>(

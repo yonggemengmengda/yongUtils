@@ -251,6 +251,7 @@ function removeUnusedImportSpecifiers(
 			}
 
 			const specifiers = entry.specifiers.filter((specifier) =>
+				shouldPreserveImportSpecifier(entry, specifier) ||
 				isImportSpecifierUsed(specifier.localName, programPath, usedNames)
 			)
 			if (!specifiers.length) {
@@ -263,6 +264,13 @@ function removeUnusedImportSpecifiers(
 			}
 		})
 		.filter((entry): entry is ImportEntry => Boolean(entry))
+}
+
+function shouldPreserveImportSpecifier(
+	entry: ImportEntry,
+	specifier: ImportSpecifierInfo
+): boolean {
+	return entry.isTypeOnly || specifier.isTypeOnly
 }
 
 function collectTypeOnlyImportUsageNames(
@@ -352,13 +360,9 @@ function createImportSorter(options: ImportSortOptions) {
 			return groupDiff
 		}
 
-		const pathDiff = left.modulePath.localeCompare(right.modulePath)
-		if (pathDiff !== 0) {
-			return pathDiff
-		}
-
-		if (left.isTypeOnly !== right.isTypeOnly) {
-			return left.isTypeOnly ? 1 : -1
+		const bucketDiff = getImportSortBucket(left) - getImportSortBucket(right)
+		if (bucketDiff !== 0) {
+			return bucketDiff
 		}
 
 		const leftSortText = renderImportEntryForSort(left)
@@ -370,8 +374,29 @@ function createImportSorter(options: ImportSortOptions) {
 			}
 		}
 
+		const pathDiff = left.modulePath.localeCompare(right.modulePath)
+		if (pathDiff !== 0) {
+			return pathDiff
+		}
+
 		return leftSortText.localeCompare(rightSortText)
 	}
+}
+
+function getImportSortBucket(entry: ImportEntry): number {
+	if (entry.isTypeOnly) {
+		return 0
+	}
+
+	if (hasNamedSpecifiers(entry)) {
+		return 2
+	}
+
+	return 1
+}
+
+function hasNamedSpecifiers(entry: ImportEntry): boolean {
+	return entry.specifiers.some((specifier) => specifier.kind === "named")
 }
 
 function formatImportEntries(
