@@ -2,7 +2,7 @@
 	"name": "yongutils",
 	"displayName": "YongUtils",
 	"description": "面向前端开发者的 VS Code 效率插件，集成 Import 排序、AI 翻译、i18n 提取、类型生成、Vue 3 AST 洞察与常用开发工具",
-	"version": "0.1.5",
+	"version": "0.1.6",
 	"author": "勇哥 <846864051@qq.com>",
 	"publisher": "yonggemengmengda",
 	"license": "MIT",
